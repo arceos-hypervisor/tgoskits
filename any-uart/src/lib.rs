@@ -38,6 +38,7 @@ pub struct Uart {
 impl Uart {
     fn _new<C: Console>(data: UartData) -> Self {
         let op = C::to_op();
+        C::open(data);
 
         Self {
             data,
@@ -196,6 +197,7 @@ impl Receiver {
 }
 
 pub(crate) trait Console {
+    fn open(uart: UartData);
     fn can_put(uart: UartData) -> bool;
     fn put(uart: UartData, c: u8) -> Result<(), ErrorKind>;
     fn can_get(uart: UartData) -> bool;

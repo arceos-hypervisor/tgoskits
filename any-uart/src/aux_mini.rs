@@ -42,4 +42,6 @@ impl Console for AuxMini {
     fn get_irq_event(_uart: UartData) -> IrqEvent {
         todo!()
     }
+
+    fn open(_uart: UartData) {}
 }

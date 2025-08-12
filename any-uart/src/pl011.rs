@@ -29,6 +29,7 @@ bitflags! {
     }
 }
 
+const UARTCR: usize = 0x030 / 4;
 const IMSC: usize = 0x038 / 4;
 const RIS: usize = 0x03C / 4;
 const MIS: usize = 0x040 / 4;
@@ -121,5 +122,15 @@ impl Console for Pl011 {
             }
         }
         event
+    }
+
+    fn open(uart: UartData) {
+        unsafe {
+            // 启用 UART，设置 TXE (bit 8) 和 UARTEN (bit 0)
+            let cr = uart.reg::<u32>(UARTCR);
+            let current_value = cr.read_volatile();
+            // TXE = bit 8, UARTEN = bit 0
+            cr.write_volatile(current_value | (1 << 8) | (1 << 0));
+        }
     }
 }

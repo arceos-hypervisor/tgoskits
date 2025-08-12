@@ -1,6 +1,6 @@
 [package]
 name = "any-uart"
-version = "0.2.11"
+version = "0.2.12"
 edition = "2024"
 authors = ["周睿 <zrufo747@outlook.com>"]
 description = "Init early console from device tree, mostly for Arm"

@@ -107,4 +107,6 @@ impl Console for Ns16550 {
 
         event
     }
+
+    fn open(_uart: UartData) {}
 }
