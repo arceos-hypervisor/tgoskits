@@ -27,18 +27,18 @@ usage() {
         "  scripts/pull.sh [选项]" \
         "" \
         "选项:" \
-        "  -f, --file <file>       指定仓库列表文件（默认为 scripts/repos.list）" \
-        "  -r, --repo <dir>        指定要拉取的组件目录（可多次使用）" \
-        "  -b, --branch <branch>   指定要拉取的分支（默认使用 repos.list 中的配置）" \
-        "  -a, --all               拉取所有组件的更新" \
+        "  -f, --file <file>       指定仓库列表文件并拉取其中所有仓库（默认为 scripts/repos.list）" \
+        "  -c, --component <dir>   指定要拉取的组件目录（需配合 -b 使用）" \
+        "  -b, --branch <branch>   指定要拉取的分支（需配合 -c 使用）" \
         "  -d, --dry-run           仅显示将要执行的操作，不实际执行" \
         "  -h, --help              显示此帮助信息" \
         "" \
         "示例:" \
-        "  scripts/pull.sh -r arm_vcpu              # 拉取指定组件的更新" \
-        "  scripts/pull.sh -r arm_vcpu -b dev       # 拉取指定组件的 dev 分支" \
-        "  scripts/pull.sh -a                       # 拉取所有组件的更新" \
-        "  scripts/pull.sh --dry-run -a             # 预览拉取操作"
+        "  scripts/pull.sh                         # 显示帮助信息" \
+        "  scripts/pull.sh -f                      # 拉取默认文件中所有仓库" \
+        "  scripts/pull.sh -f repos.list           # 拉取指定文件中所有仓库" \
+        "  scripts/pull.sh -c arm_vcpu -b dev      # 拉取指定组件的 dev 分支" \
+        "  scripts/pull.sh --dry-run -f            # 预览拉取操作"
 }
 
 log_info() {
@@ -107,6 +107,13 @@ pull_component() {
     
     cd "${ROOT_DIR}"
     
+    # 检查工作区是否干净
+    if ! git diff --quiet HEAD 2>/dev/null; then
+        log_error "工作区有未提交的修改，请先提交或暂存更改"
+        git status --short
+        return 1
+    fi
+    
     if [[ ! -d "${dir}" ]]; then
         log_error "组件目录不存在: ${dir}"
         return 1
@@ -138,19 +145,27 @@ pull_component() {
 # =============================================================================
 
 main() {
+    if [[ $# -eq 0 ]]; then
+        usage
+        exit 0
+    fi
+    
     local repo_file="${DEFAULT_REPO_FILE}"
     local branch=""
     local dry_run="false"
-    local pull_all="false"
     local -a manual_repos=()
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -f|--file)
-                repo_file="$2"
-                shift 2
+                if [[ $# -ge 2 && ! "$2" =~ ^- ]]; then
+                    repo_file="$2"
+                    shift 2
+                else
+                    shift
+                fi
                 ;;
-            -r|--repo)
+            -c|--component)
                 manual_repos+=("$2")
                 shift 2
                 ;;
@@ -160,10 +175,6 @@ main() {
                 ;;
             -d|--dry-run)
                 dry_run="true"
-                shift
-                ;;
-            -a|--all)
-                pull_all="true"
                 shift
                 ;;
             -h|--help)
@@ -187,6 +198,11 @@ main() {
     declare -A PULL_DIRS
     
     if [[ ${#manual_repos[@]} -gt 0 ]]; then
+        if [[ -z "${branch}" ]]; then
+            log_error "使用 -r 指定组件时必须使用 -b 指定分支"
+            usage
+            exit 1
+        fi
         log_info "手动指定拉取 ${#manual_repos[@]} 个组件"
         for dir in "${manual_repos[@]}"; do
             if [[ -n "${REPO_MAP[$dir]:-}" ]]; then
@@ -196,15 +212,11 @@ main() {
                 exit 1
             fi
         done
-    elif [[ "$pull_all" == "true" ]]; then
-        log_info "拉取所有组件模式"
+    else
+        log_info "拉取文件中所有组件"
         for dir in "${!REPO_MAP[@]}"; do
             PULL_DIRS["$dir"]=1
         done
-    else
-        log_error "请使用 -r 指定组件或使用 -a 拉取所有组件"
-        usage
-        exit 1
     fi
     
     log_info "将要拉取的组件: ${!PULL_DIRS[*]}"

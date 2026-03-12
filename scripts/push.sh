@@ -29,13 +29,12 @@ usage() {
         "  scripts/push.sh [选项]" \
         "" \
         "选项:" \
-        "  -f, --file <file>       指定仓库列表文件（默认为 scripts/repos.list）" \
+        "  -f, --file <file>       指定仓库列表文件并推送其中所有仓库（默认为 scripts/repos.list）" \
+        "  -c, --component <dir>   指定要推送的组件目录（需配合 -b 使用）" \
         "  -b, --branch <branch>   指定推送的目标分支（默认为 dev）" \
-        "  -r, --repo <dir>        指定要推送的组件目录（可多次使用）" \
         "  -d, --dry-run           仅显示将要执行的操作，不实际执行" \
-        "  -a, --all               推送所有组件（无论是否有修改）" \
         "  --force                 强制推送（即使远程有更新也覆盖）" \
-        "  -c, --commit <msg>      提交信息（如果没有提交会自动创建）" \
+        "  -m, --commit <msg>      提交信息（如果没有提交会自动创建）" \
         "  -h, --help              显示此帮助信息" \
         "" \
         "注意:" \
@@ -43,14 +42,12 @@ usage() {
         "  可以使用 --force 强制推送，但这可能覆盖远程的提交。" \
         "" \
         "示例:" \
-        "  scripts/push.sh                              # 推送所有修改的组件到 dev 分支" \
-        "  scripts/push.sh -b main                      # 推送到 main 分支" \
-        "  scripts/push.sh -d                           # 仅显示将要推送的组件" \
-        "  scripts/push.sh -a                           # 推送所有组件" \
-        "  scripts/push.sh -r axconfig-gen              # 推送指定组件" \
-        "  scripts/push.sh -r axconfig-gen -r axvm      # 推送多个指定组件" \
-        "  scripts/push.sh -r arm_vcpu --force          # 强制推送（覆盖远程）" \
-        "  scripts/push.sh -c 'fix: update API'         # 自动提交并推送"
+        "  scripts/push.sh                            # 显示帮助信息" \
+        "  scripts/push.sh -f                         # 推送文件中所有组件到 dev 分支" \
+        "  scripts/push.sh -f -b main                 # 推送文件中所有组件到 main 分支" \
+        "  scripts/push.sh -c axconfig-gen -b dev     # 推送指定组件到 dev 分支" \
+        "  scripts/push.sh -c arm_vcpu -b dev --force # 强制推送（覆盖远程）" \
+        "  scripts/push.sh -f -m 'fix: update API'    # 自动提交并推送"
 }
 
 log_info() {
@@ -208,10 +205,14 @@ sync_component() {
 # =============================================================================
 
 main() {
+    if [[ $# -eq 0 ]]; then
+        usage
+        exit 0
+    fi
+    
     local repo_file="${DEFAULT_REPO_FILE}"
     local target_branch="${DEFAULT_BRANCH}"
     local dry_run="false"
-    local sync_all="false"
     local force_push="false"
     local commit_msg=""
     local -a manual_repos=()  # 手动指定的组件列表
@@ -220,14 +221,18 @@ main() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -f|--file)
-                repo_file="$2"
-                shift 2
+                if [[ $# -ge 2 && ! "$2" =~ ^- ]]; then
+                    repo_file="$2"
+                    shift 2
+                else
+                    shift
+                fi
                 ;;
             -b|--branch)
                 target_branch="$2"
                 shift 2
                 ;;
-            -r|--repo)
+            -c|--component)
                 manual_repos+=("$2")
                 shift 2
                 ;;
@@ -235,15 +240,11 @@ main() {
                 dry_run="true"
                 shift
                 ;;
-            -a|--all)
-                sync_all="true"
-                shift
-                ;;
             --force)
                 force_push="true"
                 shift
                 ;;
-            -c|--commit)
+            -m|--commit)
                 commit_msg="$2"
                 shift 2
                 ;;
@@ -279,14 +280,11 @@ main() {
                 exit 1
             fi
         done
-    elif [[ "$sync_all" == "true" ]]; then
-        log_info "同步所有组件模式"
+    else
+        log_info "同步文件中所有组件"
         for dir in "${!REPO_MAP[@]}"; do
             MODIFIED_DIRS["$dir"]=1
         done
-    else
-        # 自动检测修改的组件（在提交之前）
-        get_modified_dirs
     fi
     
     # 检查是否有未提交的修改
