@@ -21,8 +21,8 @@
 #
 # 【前置条件】
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. 子仓库需配置 scripts/push.yml 和 PARENT_REPO_TOKEN
-# 2. scripts/repos.list 中需包含组件的仓库 URL 映射
+# 1. 子仓库需配置 scripts/push.yml（包含正确的 PARENT_REPO）和 PARENT_REPO_TOKEN
+# 2. 无需 scripts/repos.list 也无需子仓库指定目录，subtree 目录由主仓库从 git 历史自动推断
 #
 # 【注意事项】
 # ─────────────────────────────────────────────────────────────────────────────
@@ -39,15 +39,14 @@ on:
     types: [subtree-update]
   workflow_dispatch:
     inputs:
-      component:
-        description: '组件目录名'
+      repo_url:
+        description: '组件仓库 URL（如 https://github.com/arceos-hypervisor/arm_vcpu）'
         required: true
         type: string
       branch:
-        description: '组件分支'
+        description: '组件分支（留空则默认 main）'
         required: false
         type: string
-        default: 'main'
 
 permissions:
   contents: write
@@ -71,89 +70,80 @@ jobs:
       - name: Get component info
         id: component
         run: |
-          # 从 workflow_dispatch 或 repository_dispatch 获取组件信息
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            COMPONENT="${{ inputs.component }}"
+            REPO_URL="${{ inputs.repo_url }}"
             BRANCH="${{ inputs.branch }}"
           else
-            COMPONENT="${{ github.event.client_payload.component }}"
-            BRANCH="${{ github.event.client_payload.branch || 'main' }}"
+            REPO_URL="${{ github.event.client_payload.repo_url }}"
+            BRANCH="${{ github.event.client_payload.branch }}"
           fi
-          
-          echo "component=${COMPONENT}" >> $GITHUB_OUTPUT
-          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
-          
-          # 从 repos.list 中查找组件的仓库 URL
-          if [ -f "scripts/repos.list" ]; then
-            # 读取 repos.list，查找包含组件目录的行
-            while IFS='|' read -r url branch dir; do
-              # 跳过注释和空行
-              [[ "$url" =~ ^[[:space:]]*# ]] && continue
-              [[ -z "${url// }" ]] && continue
-              
-              # 处理两字段格式 (url|dir)
-              if [[ -z "$dir" ]]; then
-                dir="$branch"
-                branch=""
-              fi
-              
-              # 去除空格
-              url=$(echo "$url" | xargs)
-              dir=$(echo "$dir" | xargs)
-              
-              # 检查目录名是否匹配（支持完整路径或最后一段）
-              dir_name=$(basename "$dir")
-              if [[ "$dir" == "${COMPONENT}" || "$dir_name" == "${COMPONENT}" ]]; then
-                REPO_URL="$url"
-                FULL_DIR="$dir"
-                echo "Found component: ${COMPONENT} -> ${REPO_URL} (dir: ${FULL_DIR})"
-                break
-              fi
-            done < "scripts/repos.list"
-            
-            if [ -n "$REPO_URL" ]; then
-              echo "repo_url=${REPO_URL}" >> $GITHUB_OUTPUT
-              echo "full_dir=${FULL_DIR}" >> $GITHUB_OUTPUT
-            else
-              echo "Error: Component ${COMPONENT} not found in repos.list"
-              exit 1
-            fi
-          else
-            echo "Error: scripts/repos.list not found"
+
+          if [ -z "$REPO_URL" ]; then
+            echo "Error: repo_url is empty."
             exit 1
           fi
 
+          BRANCH="${BRANCH:-main}"
+          COMPONENT=$(basename "${REPO_URL%.git}")
+
+          echo "component=${COMPONENT}" >> $GITHUB_OUTPUT
+          echo "repo_url=${REPO_URL}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+
+          echo "Component : ${COMPONENT}"
+          echo "Repo URL  : ${REPO_URL}"
+          echo "Branch    : ${BRANCH}"
+
       - name: Pull subtree updates
+        id: pull_subtree
         run: |
           COMPONENT="${{ steps.component.outputs.component }}"
-          FULL_DIR="${{ steps.component.outputs.full_dir }}"
           BRANCH="${{ steps.component.outputs.branch }}"
           REPO_URL="${{ steps.component.outputs.repo_url }}"
-          
-          echo "Pulling updates for ${COMPONENT} from ${REPO_URL}:${BRANCH}"
-          echo "Target directory: ${FULL_DIR}"
-          
-          # 检查组件目录是否存在
-          if [ ! -d "${FULL_DIR}" ]; then
-            echo "Error: Component directory ${FULL_DIR} does not exist"
-            exit 1
-          fi
-          
-          # 使用简化的 remote 名称（替换 / 为 _）
-          REMOTE_NAME=$(echo "${FULL_DIR}" | tr '/' '_')
-          
+
+          # remote 名取仓库名，避免斜杠
+          REMOTE_NAME="subtree-${COMPONENT}"
+
           # 添加或更新 remote
           if git remote | grep -q "^${REMOTE_NAME}$"; then
             git remote set-url "${REMOTE_NAME}" "${REPO_URL}"
           else
             git remote add "${REMOTE_NAME}" "${REPO_URL}"
           fi
-          
-          # 获取远程更新
-          git fetch "${REMOTE_NAME}" --no-tags
-          
+
+          # 先 fetch，才能用 merge-base 做祖先检查
+          echo "Fetching ${REPO_URL}:${BRANCH} ..."
+          git fetch "${REMOTE_NAME}" "${BRANCH}" --no-tags
+
+          # 从 git 历史自动推断 subtree 目录：
+          # git subtree add/pull 会在 merge commit 消息中写入
+          #   git-subtree-dir: <prefix>
+          #   git-subtree-split: <split-sha>
+          # 找到 split-sha 是本次 fetch HEAD 祖先的那条记录，即为本仓库对应的目录。
+          FULL_DIR=$(git log --format="%B" --grep="git-subtree-split:" | \
+            awk '/^git-subtree-dir:/{dir=$2} /^git-subtree-split:/{if(dir!="") print dir" "$2; dir=""}' | \
+            while IFS=' ' read -r dir split_sha; do
+              if git merge-base --is-ancestor "$split_sha" "${REMOTE_NAME}/${BRANCH}" 2>/dev/null; then
+                echo "$dir"
+                break
+              fi
+            done)
+
+          if [ -z "$FULL_DIR" ]; then
+            echo "Error: Cannot find a subtree prefix for ${REPO_URL} in this repository's git history."
+            echo "Make sure this repo was added via 'git subtree add' before using this workflow."
+            exit 1
+          fi
+
+          echo "Pulling updates for ${COMPONENT} from ${REPO_URL}:${BRANCH}"
+          echo "Detected subtree directory: ${FULL_DIR}"
+
           # 执行 subtree pull
-          git subtree pull --prefix="${FULL_DIR}" "${REMOTE_NAME}" "${BRANCH}" -m "Merge subtree ${FULL_DIR}/${BRANCH}"
+          git subtree pull --prefix="${FULL_DIR}" "${REMOTE_NAME}" "${BRANCH}" \
+            -m "Merge subtree ${FULL_DIR} from ${COMPONENT}@${BRANCH}"
+
+          # 将推断出的目录传给后续步骤
+          echo "full_dir=${FULL_DIR}" >> $GITHUB_OUTPUT
 
       - name: Push changes
         run: |
@@ -172,7 +162,7 @@ jobs:
       - name: Create summary
         run: |
           COMPONENT="${{ steps.component.outputs.component }}"
-          FULL_DIR="${{ steps.component.outputs.full_dir }}"
+          FULL_DIR="${{ steps.pull_subtree.outputs.full_dir }}"
           BRANCH="${{ steps.component.outputs.branch }}"
           REPO_URL="${{ steps.component.outputs.repo_url }}"
           
