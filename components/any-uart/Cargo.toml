@@ -1,4 +1,0 @@
-[workspace]
-members = ["any-uart", "hello"]
-resolver = "3"
-exclude = ["dtb"]
