@@ -1,0 +1,45 @@
+use pie_boot_if::BootInfo;
+
+use crate::{common, lazy_static::LazyStatic, power, println, setup_exception_vectors};
+
+#[unsafe(link_section = ".data")]
+static BOOT_INFO: LazyStatic<BootInfo> = LazyStatic::new();
+
+pub fn boot_info() -> &'static BootInfo {
+    &BOOT_INFO
+}
+
+pub(crate) unsafe fn boot_info_edit<R>(f: impl FnOnce(&mut BootInfo) -> R) -> R {
+    unsafe { BOOT_INFO.edit(f) }
+}
+
+pub fn virt_entry(args: &BootInfo) {
+    common::mem::clean_bss();
+    BOOT_INFO.init(args.clone());
+    common::fdt::init_debugcon(boot_info().fdt);
+    println!("SomeHAL booting...");
+    setup_exception_vectors();
+    power::init_by_fdt(boot_info().fdt);
+    common::fdt::setup_plat_info();
+    common::mem::init_regions(&args.memory_regions);
+
+    unsafe {
+        BOOT_INFO.edit(|info| info.free_memory_start = common::mem::init_percpu_stack());
+
+        // 合并和去重内存区域（按类型单独处理）
+        common::mem::merge_and_dedup_regions();
+
+        let (region_ptr, region_len) =
+            common::mem::with_regions(|regions| (regions.as_mut_ptr(), regions.len()));
+        let region_slice = core::slice::from_raw_parts_mut(region_ptr, region_len);
+        BOOT_INFO.edit(|info| info.memory_regions = region_slice.into());
+
+        unsafe extern "Rust" {
+            fn __pie_boot_main(args: &BootInfo);
+        }
+        println!("Goto main...");
+        __pie_boot_main(&BOOT_INFO);
+
+        power::shutdown();
+    }
+}

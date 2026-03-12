@@ -1,0 +1,16 @@
+{
+    "rust-analyzer.check.allTargets": false,
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.cargo.features": [
+        // "hv"
+    ],
+    "rust-targets.targets": [
+        "aarch64-unknown-none",
+        "aarch64-unknown-none-softfloat",
+        "x86_64-unknown-none",
+        "riscv64gc-unknown-none-elf",
+        "loongarch64-unknown-none",
+        // for xtask
+        "system"
+    ],
+}
