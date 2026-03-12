@@ -5,7 +5,7 @@ https://github.com/Starry-OS/StarryOS,,os/StarryOS,OS,StarryOS - 教学操作系
 https://github.com/arceos-hypervisor/aarch64_sysreg,,components/aarch64_sysreg,Hypervisor,
 https://github.com/arceos-hypervisor/axaddrspace,,components/axaddrspace,Hypervisor,
 https://github.com/arceos-hypervisor/axdevice,,components/axdevice,Hypervisor,
-https://github.com/arceos-hypervisor/axdevice_base,,components/axdevice_base,Hypervisor,
+https://github.com/arceos-hypervisor/axdevice_base,v0.2.1,components/axdevice_base,Hypervisor,
 https://github.com/arceos-hypervisor/axhvc,,components/axhvc,Hypervisor,
 https://github.com/arceos-hypervisor/axklib,,components/axklib,Hypervisor,
 https://github.com/arceos-hypervisor/axvcpu,v0.2.2,components/axvcpu,Hypervisor,
