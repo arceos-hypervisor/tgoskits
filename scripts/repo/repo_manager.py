@@ -248,6 +248,16 @@ class GitSubtreeManager:
             self.add_subtree(url, target_dir, branch)
             return
 
+        # Force mode: remove and re-add the subtree
+        if force:
+            print(f"Force mode: removing '{target_dir}' and re-adding from branch '{branch}'...")
+            # Remove the directory
+            subprocess.run(['git', 'rm', '-r', '--cached', target_dir], check=True)
+            subprocess.run(['rm', '-rf', target_dir])
+            # Re-add the subtree
+            self.add_subtree(url, target_dir, branch)
+            return
+
         repo_name = self.get_repo_name(url)
         cmd = [
             'git', 'subtree', 'pull',
@@ -256,12 +266,6 @@ class GitSubtreeManager:
             branch,
             '-m', f'Merge subtree {repo_name}/{branch}'
         ]
-
-        # Add strategy option for force pull
-        if force:
-            cmd.insert(5, '-X')
-            cmd.insert(6, 'theirs')
-
         self._run_command(cmd)
 
     def push_subtree(self, url: str, target_dir: str, branch: str = "") -> None:
