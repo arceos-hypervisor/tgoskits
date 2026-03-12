@@ -14,7 +14,7 @@ remove 功能:
     1. 读取指定的 Cargo.toml 文件
     2. 将原文件备份为 .bk 后缀
     3. 移除 [workspace] 及其所有子节点配置
-    4. 将修改后的内容保存到原文件名
+    4. 如果移除后文件为空，则删除文件；否则保存到原文件名
 
 remove --all 功能:
     1. 遍历 components/ 和 os/ 目录下所有子目录
@@ -24,10 +24,11 @@ remove --all 功能:
 
 restore 功能:
     1. 检查 .bk 备份文件是否存在
-    2. 从 .bk 文件中提取所有 workspace 相关配置
-    3. 将 workspace 配置添加到当前文件开头（保留当前文件的其他修改）
-    4. 创建 .tmp 备份（安全措施）
-    5. 删除 .bk 和 .tmp 临时文件
+    2. 如果原文件不存在，直接用 .bk 改名恢复
+    3. 否则，从 .bk 文件中提取所有 workspace 相关配置
+    4. 将 workspace 配置添加到当前文件开头（保留当前文件的其他修改）
+    5. 创建 .tmp 备份（安全措施）
+    6. 删除 .bk 和 .tmp 临时文件
 """
 
 import sys
@@ -149,7 +150,13 @@ def process_cargo_toml(file_path):
     try:
         with open(path, 'w', encoding='utf-8') as f:
             f.write(processed_content)
-        print(f"已处理并保存: {path}")
+
+        # 检查处理后内容是否为空（或仅包含空白字符）
+        if not processed_content.strip():
+            path.unlink()
+            print(f"文件内容为空，已删除: {path}")
+        else:
+            print(f"已处理并保存: {path}")
         return 0
     except Exception as e:
         print(f"错误: 无法写入文件: {e}", file=sys.stderr)
@@ -222,6 +229,16 @@ def restore_backup(file_path):
     if not backup_path.exists():
         print(f"提示: 备份文件不存在，无需恢复: {backup_path}")
         return 0
+
+    # 如果原文件不存在，直接用备份恢复
+    if not path.exists():
+        try:
+            shutil.move(str(backup_path), str(path))
+            print(f"原文件不存在，已从备份直接恢复: {path}")
+            return 0
+        except Exception as e:
+            print(f"错误: 无法从备份恢复文件: {e}", file=sys.stderr)
+            return 1
 
     # 创建临时备份（安全措施）
     tmp_path = path.with_name(f"{path.name}.tmp")
