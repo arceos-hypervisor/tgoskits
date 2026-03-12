@@ -1,3 +1,0 @@
-[qemu]
-args = "-machine virtualization=on"
-graphic = false
