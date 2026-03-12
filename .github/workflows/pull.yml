@@ -1,3 +1,36 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# 主仓库 Subtree Pull 工作流
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# 此工作流用于从子仓库拉取更新到主仓库。与 scripts/push.yml（子仓库使用）配合。
+#
+# 【配合关系】
+# ─────────────────────────────────────────────────────────────────────────────
+# scripts/push.yml (子仓库)          .github/workflows/pull.yml (主仓库)
+#        │                                    │
+#   子仓库 push ──────────────────> repository_dispatch
+#        │                                    │
+#   发送通知 (curl API) ────────>   触发此工作流
+#                                             │
+#                                    subtree pull 同步
+#
+# 【触发方式】
+# ─────────────────────────────────────────────────────────────────────────────
+# - 自动触发：子仓库通过 repository_dispatch 发送 subtree-update 事件
+# - 手动触发：Actions → Subtree Pull → Run workflow（指定组件名）
+#
+# 【前置条件】
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. 子仓库需配置 scripts/push.yml 和 PARENT_REPO_TOKEN
+# 2. scripts/repos.list 中需包含组件的仓库 URL 映射
+#
+# 【注意事项】
+# ─────────────────────────────────────────────────────────────────────────────
+# - 默认拉取到 next 分支，可根据需要修改 ref 参数
+# - 如果有冲突，subtree pull 会失败，需手动解决
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 name: Subtree Pull
 
 # 当收到组件仓库的更新通知时触发
@@ -94,10 +127,14 @@ jobs:
 
       - name: Push changes
         run: |
-          # 检查是否有变更
-          if git diff --quiet HEAD~1; then
-            echo "No changes to push"
+          # 检查是否有新提交需要推送
+          git fetch origin next --quiet
+          AHEAD=$(git rev-list --count origin/next..HEAD 2>/dev/null || echo "0")
+          
+          if [ "$AHEAD" -eq 0 ]; then
+            echo "No new commits to push"
           else
+            echo "Pushing ${AHEAD} commit(s) to next branch..."
             git push origin HEAD:next
             echo "Changes pushed to next branch successfully"
           fi
