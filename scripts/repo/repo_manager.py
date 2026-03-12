@@ -157,6 +157,18 @@ class CSVManager:
         """List all repositories."""
         return self.load_repos()
 
+    def update_repo_branch(self, repo_name: str, new_branch: str) -> Repo:
+        """Update the branch for a repository. Returns the updated repo."""
+        repos = self.load_repos()
+
+        for i, repo in enumerate(repos):
+            if repo.repo_name.lower() == repo_name.lower():
+                repos[i].branch = new_branch
+                self.save_repos(repos)
+                return repos[i]
+
+        raise ValueError(f"Repository '{repo_name}' not found in CSV")
+
 
 class GitSubtreeManager:
     """Manages git subtree operations."""
@@ -175,6 +187,16 @@ class GitSubtreeManager:
     def get_repo_name(url: str) -> str:
         """Extract repo name from URL."""
         return url.rstrip('/').split('/')[-1]
+
+    @staticmethod
+    def check_working_tree_clean() -> bool:
+        """Check if working tree is clean (no uncommitted changes)."""
+        result = subprocess.run(
+            ['git', 'status', '--porcelain'],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0 and not result.stdout.strip()
 
     def is_added(self, target_dir: str) -> bool:
         """Check if a subtree is already added."""
@@ -198,6 +220,13 @@ class GitSubtreeManager:
         if self.is_added(target_dir):
             print(f"Subtree at '{target_dir}' already exists.")
             return
+
+        # Check if working tree is clean
+        if not self.check_working_tree_clean():
+            raise ValueError(
+                "Working tree has uncommitted changes. "
+                "Please commit or stash your changes before adding a subtree."
+            )
 
         repo_name = self.get_repo_name(url)
         cmd = [
@@ -242,6 +271,24 @@ class GitSubtreeManager:
             '--prefix=' + target_dir,
             url,
             branch
+        ]
+        self._run_command(cmd)
+
+    def switch_branch(self, url: str, target_dir: str, old_branch: str, new_branch: str) -> None:
+        """Switch a subtree to a different branch."""
+        if not self.is_added(target_dir):
+            print(f"Subtree at '{target_dir}' not found. Adding...")
+            self.add_subtree(url, target_dir, new_branch)
+            return
+
+        # Pull from the new branch to get the changes
+        repo_name = self.get_repo_name(url)
+        cmd = [
+            'git', 'subtree', 'pull',
+            '--prefix=' + target_dir,
+            url,
+            new_branch,
+            '-m', f'Switch {repo_name} from {old_branch} to {new_branch}'
         ]
         self._run_command(cmd)
 
@@ -360,6 +407,10 @@ def cmd_pull(args: argparse.Namespace) -> int:
         try:
             print(f"\nPulling {repo.repo_name}...")
             git_manager.pull_subtree(repo.url, repo.target_dir, repo.branch)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            if not args.all:
+                return 1
         except subprocess.CalledProcessError as e:
             print(f"Error pulling {repo.repo_name}: {e}", file=sys.stderr)
             if not args.all:
@@ -445,6 +496,57 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_branch(args: argparse.Namespace) -> int:
+    """Handle the 'branch' command."""
+    csv_manager = CSVManager(args.csv)
+    git_manager = GitSubtreeManager(csv_manager)
+
+    if not args.repo_name:
+        print("Error: repo_name is required", file=sys.stderr)
+        return 1
+
+    if not args.branch:
+        print("Error: branch is required", file=sys.stderr)
+        return 1
+
+    repo_name = args.repo_name
+    new_branch = args.branch
+
+    # Find the repository
+    repo = csv_manager.find_repo(repo_name)
+    if not repo:
+        print(f"Error: Repository '{repo_name}' not found", file=sys.stderr)
+        return 1
+
+    if not repo.target_dir:
+        print(f"Error: Repository '{repo_name}' has no target_dir set", file=sys.stderr)
+        return 1
+
+    old_branch = repo.branch if repo.branch else "main"
+
+    # Pull from new branch first (only update CSV after success)
+    try:
+        print(f"Switching {repo_name} to branch '{new_branch}'...")
+        git_manager.switch_branch(repo.url, repo.target_dir, old_branch, new_branch)
+        print(f"Successfully switched {repo_name} to branch '{new_branch}'")
+    except (subprocess.CalledProcessError, ValueError) as e:
+        print(f"Error switching branch: {e}", file=sys.stderr)
+        # Print original git error if available
+        if isinstance(e, subprocess.CalledProcessError) and e.stderr:
+            print(f"Git error output: {e.stderr}", file=sys.stderr)
+        return 1
+
+    # Update CSV only after successful git operation
+    try:
+        csv_manager.update_repo_branch(repo_name, new_branch)
+        print(f"Updated CSV: {repo_name} branch: {old_branch} -> {new_branch}")
+    except ValueError as e:
+        print(f"Error updating CSV: {e}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -496,6 +598,11 @@ Examples:
     list_parser = subparsers.add_parser('list', help='List all repositories')
     list_parser.add_argument('--category', help='Filter by category')
 
+    # Branch command
+    branch_parser = subparsers.add_parser('branch', help='Switch a subtree to a different branch')
+    branch_parser.add_argument('repo_name', help='Repository name')
+    branch_parser.add_argument('branch', help='New branch name')
+
     args = parser.parse_args()
 
     if not args.command:
@@ -509,6 +616,7 @@ Examples:
         'pull': cmd_pull,
         'push': cmd_push,
         'list': cmd_list,
+        'branch': cmd_branch,
     }
 
     handler = handlers.get(args.command)
