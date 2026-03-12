@@ -16,11 +16,16 @@
 # OS 项目 - 完整的操作系统内核
 # =============================================================================
 
+# ArceOS
+https://github.com/arceos-org/arceos|dev|os/arceos
+
 # axvisor - ArceOS Hypervisor
 https://github.com/arceos-hypervisor/axvisor||os/axvisor
 
 # StarryOS - 教学操作系统
 https://github.com/Starry-OS/StarryOS||os/StarryOS
+
+
 
 # =============================================================================
 # ArceOS Hypervisor 组件 - 虚拟化相关组件
@@ -48,7 +53,6 @@ https://github.com/arceos-hypervisor/riscv_vplic||components/riscv_vplic
 # ArceOS 组件 - 操作系统框架和基础组件
 # =============================================================================
 
-https://github.com/arceos-org/arceos|dev|components/arceos
 https://github.com/arceos-org/allocator||components/axallocator
 https://github.com/arceos-org/axconfig-gen||components/axconfig-gen
 https://github.com/arceos-org/axcpu||components/axcpu
