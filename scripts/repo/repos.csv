@@ -9,7 +9,7 @@ https://github.com/arceos-hypervisor/axdevice_base,v0.2.1,components/axdevice_ba
 https://github.com/arceos-hypervisor/axhvc,,components/axhvc,Hypervisor,
 https://github.com/arceos-hypervisor/axklib,,components/axklib,Hypervisor,
 https://github.com/arceos-hypervisor/axvcpu,v0.2.2,components/axvcpu,Hypervisor,
-https://github.com/arceos-hypervisor/axvisor_api,v0.1.0,components/axvisor_api,Hypervisor,
+https://github.com/arceos-hypervisor/axvisor_api,e08a495,components/axvisor_api,Hypervisor,
 https://github.com/arceos-hypervisor/axvm,v0.2.3,components/axvm,Hypervisor,
 https://github.com/arceos-hypervisor/axvmconfig,,components/axvmconfig,Hypervisor,
 https://github.com/arceos-hypervisor/range-alloc,,components/range-alloc-arceos,Hypervisor,
