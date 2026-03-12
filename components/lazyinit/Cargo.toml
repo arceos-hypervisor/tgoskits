@@ -10,6 +10,6 @@ repository = "https://github.com/arceos-org/lazyinit"
 documentation = "https://docs.rs/lazyinit"
 keywords = ["lazy", "initialization", "static"]
 categories = ["no-std", "rust-patterns"]
-rust-version = "1.56.1"
+# rust-version = "1.56.1"
 
 [dependencies]

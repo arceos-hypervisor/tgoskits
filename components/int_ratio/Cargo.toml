@@ -10,6 +10,6 @@ repository = "https://github.com/arceos-org/int_ratio"
 documentation = "https://docs.rs/int_ratio"
 keywords = ["ratio", "fraction", "integer", "approximation"]
 categories = ["mathematics"]
-rust-version = "1.57.0"
+# rust-version = "1.57.0"
 
 [dependencies]

@@ -21,4 +21,4 @@ documentation = "https://arceos-org.github.io/percpu"
 repository = "https://github.com/arceos-org/percpu"
 keywords = ["arceos", "percpu"]
 categories = ["development-tools::procedural-macro-helpers", "no-std"]
-rust-version = "1.66"
+# rust-version = "1.66"

@@ -13,7 +13,7 @@ documentation = "https://arceos-org.github.io/page_table_multiarch"
 repository = "https://github.com/arceos-org/page_table_multiarch"
 keywords = ["arceos", "paging", "page-table", "virtual-memory"]
 categories = ["os", "hardware-support", "memory-management", "no-std"]
-rust-version = "1.85"
+# rust-version = "1.85"
 
 [workspace.dependencies]
 memory_addr = "0.4"

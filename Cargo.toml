@@ -11,6 +11,9 @@ repository = "https://github.com/rcore-os/tgoskits"
 keywords = ["arceos", "kernel"]
 categories = ["os", "no-std"]
 
+[profile.release]
+lto = true
+
 [workspace]
 resolver = "3"
 members = [
