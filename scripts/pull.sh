@@ -205,8 +205,15 @@ main() {
         fi
         log_info "手动指定拉取 ${#manual_repos[@]} 个组件"
         for dir in "${manual_repos[@]}"; do
+            # 尝试直接匹配
             if [[ -n "${REPO_MAP[$dir]:-}" ]]; then
                 PULL_DIRS["$dir"]=1
+            # 尝试添加 components/ 前缀
+            elif [[ -n "${REPO_MAP[components/$dir]:-}" ]]; then
+                PULL_DIRS["components/$dir"]=1
+            # 尝试添加 os/ 前缀
+            elif [[ -n "${REPO_MAP[os/$dir]:-}" ]]; then
+                PULL_DIRS["os/$dir"]=1
             else
                 log_error "未知的组件目录: ${dir}"
                 exit 1
