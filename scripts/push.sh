@@ -23,7 +23,7 @@ usage() {
     printf '%s\n' \
         "Git Subtree 推送脚本 - 将本地组件修改推送到远程子仓库" \
         "" \
-        "注意: 默认推送到子仓库的 dev 分支" \
+        "注意: 默认推送到子仓库的 dev 分支，并自动跳过没有更改的组件" \
         "" \
         "用法:" \
         "  scripts/push.sh [选项]" \
@@ -34,6 +34,7 @@ usage() {
         "  -b, --branch <branch>   指定推送的目标分支（默认为 dev）" \
         "  -d, --dry-run           仅显示将要执行的操作，不实际执行" \
         "  --force                 强制推送（即使远程有更新也覆盖）" \
+        "  --no-skip-unchanged     不跳过没有更改的组件（默认跳过）" \
         "  -m, --commit <msg>      提交信息（如果没有提交会自动创建）" \
         "  -h, --help              显示此帮助信息" \
         "" \
@@ -43,7 +44,8 @@ usage() {
         "" \
         "示例:" \
         "  scripts/push.sh                            # 显示帮助信息" \
-        "  scripts/push.sh -f                         # 推送文件中所有组件到 dev 分支" \
+        "  scripts/push.sh -f                         # 推送文件中所有有更改的组件到 dev 分支" \
+        "  scripts/push.sh -f --no-skip-unchanged     # 推送文件中所有组件（包括未更改的）" \
         "  scripts/push.sh -f -b main                 # 推送文件中所有组件到 main 分支" \
         "  scripts/push.sh -c axconfig-gen -b dev     # 推送指定组件到 dev 分支" \
         "  scripts/push.sh -c arm_vcpu -b dev --force # 强制推送（覆盖远程）" \
@@ -140,8 +142,34 @@ has_uncommitted_changes() {
     ! git diff-index --quiet HEAD -- 2>/dev/null
 }
 
+# 检查组件是否有需要推送的更改
+# 返回: 0 表示需要推送，1 表示不需要
+needs_push() {
+    local dir="$1"
+    local remote_name="$2"
+    local branch="$3"
+    
+    # 先 fetch 远程分支
+    git fetch "${remote_name}" "${branch}" --quiet 2>/dev/null || return 0
+    
+    # 使用 subtree split 获取本地 subtree 的最新提交
+    local split_hash
+    split_hash=$(git subtree split --prefix="${dir}" 2>/dev/null) || return 0
+    
+    # 获取远程分支的最新提交
+    local remote_hash
+    remote_hash=$(git rev-parse "${remote_name}/${branch}" 2>/dev/null) || return 0
+    
+    # 比较两个 hash
+    if [[ "$split_hash" == "$remote_hash" ]]; then
+        return 1  # 不需要推送
+    else
+        return 0  # 需要推送
+    fi
+}
+
 # 同步单个组件到远程仓库
-# 参数: $1 = 组件目录, $2 = 仓库URL, $3 = 分支名, $4 = 目标分支, $5 = dry-run, $6 = force
+# 参数: $1 = 组件目录, $2 = 仓库URL, $3 = 分支名, $4 = 目标分支, $5 = dry-run, $6 = force, $7 = skip_unchanged
 sync_component() {
     local dir="$1"
     local repo_url="$2"
@@ -149,6 +177,7 @@ sync_component() {
     local target_branch="$4"
     local dry_run="$5"
     local force_push="$6"
+    local skip_unchanged="$7"
     
     log_info "=========================================="
     log_info "同步组件: ${dir}"
@@ -169,6 +198,23 @@ sync_component() {
         return 1
     fi
     
+    # 构建远程名称
+    local remote_name="${dir}"
+    
+    # 检查是否有对应的 remote，如果没有则添加
+    if ! git remote | grep -q "^${remote_name}$"; then
+        log_info "添加远程仓库: ${remote_name} -> ${repo_url}"
+        git remote add "${remote_name}" "${repo_url}"
+    fi
+    
+    # 如果启用了跳过未更改的组件，检查是否需要推送
+    if [[ "$skip_unchanged" == "true" ]]; then
+        if ! needs_push "$dir" "$remote_name" "$target_branch"; then
+            log_info "组件 ${dir} 没有更改，跳过推送"
+            return 2  # 返回 2 表示跳过
+        fi
+    fi
+    
     # 构建 git subtree push 命令
     local force_flag=""
     if [[ "$force_push" == "true" ]]; then
@@ -179,13 +225,6 @@ sync_component() {
     if [[ "$dry_run" == "true" ]]; then
         log_info "[DRY-RUN] 将执行: git subtree push ${force_flag} --prefix=${dir} ${repo_url} ${target_branch}"
         return 0
-    fi
-    
-    # 检查是否有对应的 remote，如果没有则添加
-    local remote_name="${dir}"
-    if ! git remote | grep -q "^${remote_name}$"; then
-        log_info "添加远程仓库: ${remote_name} -> ${repo_url}"
-        git remote add "${remote_name}" "${repo_url}"
     fi
     
     # 执行 git subtree push
@@ -214,6 +253,7 @@ main() {
     local target_branch="${DEFAULT_BRANCH}"
     local dry_run="false"
     local force_push="false"
+    local skip_unchanged="true"  # 默认跳过没有更改的组件
     local commit_msg=""
     local -a manual_repos=()  # 手动指定的组件列表
     
@@ -242,6 +282,10 @@ main() {
                 ;;
             --force)
                 force_push="true"
+                shift
+                ;;
+            --no-skip-unchanged)
+                skip_unchanged="false"
                 shift
                 ;;
             -m|--commit)
@@ -312,6 +356,7 @@ main() {
     # 同步每个修改的组件
     local success_count=0
     local fail_count=0
+    local skip_count=0
     
     for dir in "${!MODIFIED_DIRS[@]}"; do
         local repo_info="${REPO_MAP[$dir]}"
@@ -324,17 +369,22 @@ main() {
             branch="${target_branch}"
         fi
         
-        if sync_component "$dir" "$repo_url" "$branch" "$target_branch" "$dry_run" "$force_push"; then
-            success_count=$((success_count + 1))
-        else
-            fail_count=$((fail_count + 1))
-        fi
+        local result
+        sync_component "$dir" "$repo_url" "$branch" "$target_branch" "$dry_run" "$force_push" "$skip_unchanged"
+        result=$?
+        
+        case $result in
+            0) success_count=$((success_count + 1)) ;;
+            2) skip_count=$((skip_count + 1)) ;;
+            *) fail_count=$((fail_count + 1)) ;;
+        esac
     done
     
     # 输出统计信息
     log_info "=========================================="
     log_info "同步完成"
     log_info "  成功: ${success_count}"
+    log_info "  跳过: ${skip_count}"
     log_info "  失败: ${fail_count}"
     log_info "=========================================="
     
