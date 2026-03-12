@@ -238,7 +238,7 @@ class GitSubtreeManager:
         ]
         self._run_command(cmd)
 
-    def pull_subtree(self, url: str, target_dir: str, branch: str = "") -> None:
+    def pull_subtree(self, url: str, target_dir: str, branch: str = "", force: bool = False) -> None:
         """Pull updates from a git subtree."""
         if branch == "":
             branch = "main"
@@ -256,6 +256,12 @@ class GitSubtreeManager:
             branch,
             '-m', f'Merge subtree {repo_name}/{branch}'
         ]
+
+        # Add strategy option for force pull
+        if force:
+            cmd.insert(5, '-X')
+            cmd.insert(6, 'theirs')
+
         self._run_command(cmd)
 
     def push_subtree(self, url: str, target_dir: str, branch: str = "") -> None:
@@ -406,7 +412,9 @@ def cmd_pull(args: argparse.Namespace) -> int:
 
         try:
             print(f"\nPulling {repo.repo_name}...")
-            git_manager.pull_subtree(repo.url, repo.target_dir, repo.branch)
+            if args.force:
+                print(f"Using force mode (will prefer remote changes on conflict)")
+            git_manager.pull_subtree(repo.url, repo.target_dir, repo.branch, force=args.force)
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             if not args.all:
@@ -588,6 +596,8 @@ Examples:
     pull_parser = subparsers.add_parser('pull', help='Pull updates from remote')
     pull_parser.add_argument('repo_name', nargs='?', help='Repository name (or use --all)')
     pull_parser.add_argument('--all', action='store_true', help='Pull all repositories')
+    pull_parser.add_argument('-f', '--force', action='store_true',
+                            help='Force pull: prefer remote changes on conflict')
 
     # Push command
     push_parser = subparsers.add_parser('push', help='Push local changes to remote')
