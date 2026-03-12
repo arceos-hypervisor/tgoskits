@@ -84,10 +84,6 @@ https://github.com/arceos-org/riscv_plic||components/riscv_plic
 # =============================================================================
 
 https://github.com/rcore-os/bitmap-allocator||components/bitmap-allocator
-https://github.com/rcore-os/virtio-drivers||components/virtio-drivers
-https://github.com/rcore-os/arm-gic-driver||components/arm-gic-driver
-https://github.com/rcore-os/any-uart||components/any-uart
-https://github.com/rcore-os/somehal||components/somehal
 
 # =============================================================================
 # Starry OS 组件 - 进程管理和文件系统组件
