@@ -23,8 +23,8 @@ name: Push to Subrepos
 #
 # 【HTTPS 配置】（无需 SSH）
 # ─────────────────────────────────────────────────────────────────────────────
-# 如果 scripts/repos.list 中的仓库地址使用 HTTPS（https://github.com/...），
-# 则无需配置 SSH_KEY，工作流会使用内置的 GITHUB_TOKEN 进行推送。
+# 如果 remote URL 使用 HTTPS（https://github.com/...），则无需配置 SSH_KEY，
+# 工作流会使用内置的 GITHUB_TOKEN 进行推送。
 #
 # 【触发方式】
 # ─────────────────────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # 需要获取上一个 commit 来比较变更
+          fetch-depth: 0  # 需要完整历史来获取 subtree 信息
 
       - name: Detect changed components
         id: detect
@@ -105,37 +105,20 @@ jobs:
           fi
           
           # 分析修改的文件，找出涉及的组件
-          declare -A COMPONENTS_MAP
-          
-          # 读取 repos.list 获取组件列表
-          while IFS= read -r line || [[ -n "$line" ]]; do
-            [[ "$line" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "${line// }" ]] && continue
-            
-            url="" branch="" dir=""
-            IFS='|' read -r url branch dir <<< "$line"
-            
-            if [[ -z "$dir" ]]; then
-              dir="$branch"
-              branch=""
-            fi
-            
-            dir=$(echo "$dir" | xargs)
-            
-            if [[ -n "$dir" ]]; then
-              COMPONENTS_MAP["$dir"]=1
-            fi
-          done < "scripts/repos.list"
-          
-          # 检查每个修改的文件属于哪个组件
           declare -A CHANGED_COMPONENTS
           
+          # 从 git log 中的 subtree 信息获取组件目录列表
+          COMPONENT_DIRS=$(git log --all --format="%b" --grep="git-subtree-dir" 2>/dev/null | \
+                           grep "^git-subtree-dir:" | \
+                           sed 's/git-subtree-dir: //' | \
+                           sort -u | \
+                           tr '\n' ' ')
+          echo "Available components: ${COMPONENT_DIRS}"
+          
+          # 检查每个修改的文件属于哪个组件
           while IFS= read -r file; do
-            # 获取文件的第一级或第二级目录
-            top_dir=$(echo "$file" | cut -d'/' -f1-2)
-            
             # 检查是否是已配置的组件目录
-            for component in "${!COMPONENTS_MAP[@]}"; do
+            for component in ${COMPONENT_DIRS}; do
               if [[ "$file" == "$component"* ]]; then
                 CHANGED_COMPONENTS["$component"]=1
                 echo "  Found change in component: $component (file: $file)"
@@ -196,32 +179,55 @@ jobs:
           echo "Target branch: ${TARGET_BRANCH}"
           echo "Force push: ${FORCE_PUSH}"
 
-      - name: Read repos.list
+      - name: Discover repo URLs via GitHub API
         id: repos
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 解析 repos.list 并创建组件到仓库 URL 的映射
-          declare -A REPO_URLS
+          # 特殊映射：目录名 -> 仓库名（处理目录名与仓库名不一致的情况）
+          declare -A SPECIAL_NAMES
+          SPECIAL_NAMES["components/range-alloc-arceos"]="range-alloc"
+          SPECIAL_NAMES["components/axallocator"]="allocator"
+          SPECIAL_NAMES["components/starry-smoltcp"]="smoltcp"
           
-          while IFS= read -r line || [[ -n "$line" ]]; do
-            [[ "$line" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "${line// }" ]] && continue
-            
-            url="" branch="" dir=""
-            IFS='|' read -r url branch dir <<< "$line"
-            
-            if [[ -z "$dir" ]]; then
-              dir="$branch"
-              branch=""
+          # GitHub 组织列表（按优先级搜索）
+          ORGS=("arceos-hypervisor" "arceos-org" "Starry-OS" "arceos")
+          
+          # 获取所有组件目录（从 git log 中的 subtree 信息）
+          COMPONENTS=$(git log --all --format="%b" --grep="git-subtree-dir" | \
+                       grep "^git-subtree-dir:" | \
+                       sed 's/git-subtree-dir: //' | \
+                       sort -u)
+          
+          echo "Discovering repository URLs for components..."
+          
+          for component in ${COMPONENTS}; do
+            # 获取组件名（检查特殊映射，否则使用目录名）
+            if [[ -n "${SPECIAL_NAMES[$component]}" ]]; then
+              comp_name="${SPECIAL_NAMES[$component]}"
+            else
+              comp_name=$(basename "${component}")
             fi
             
-            url=$(echo "$url" | xargs)
-            dir=$(echo "$dir" | xargs)
+            # 在各组织中搜索仓库
+            found_url=""
+            for org in "${ORGS[@]}"; do
+              repo_url="https://github.com/${org}/${comp_name}"
+              
+              # 检查仓库是否存在
+              if gh api "repos/${org}/${comp_name}" --jq '.html_url' >/dev/null 2>&1; then
+                found_url="${repo_url}"
+                echo "  Found: ${component} -> ${repo_url}"
+                break
+              fi
+            done
             
-            if [[ -n "$url" && -n "$dir" ]]; then
-              # 将信息保存到文件（GitHub Actions 不支持复杂变量）
-              echo "${dir}|${url}|${branch:-main}" >> /tmp/repo_mappings.txt
+            if [[ -n "${found_url}" ]]; then
+              echo "${component}|${found_url}|main" >> /tmp/repo_mappings.txt
+            else
+              echo "  Warning: No repository found for ${component}"
             fi
-          done < "scripts/repos.list"
+          done
           
           echo "Parsed $(wc -l < /tmp/repo_mappings.txt) repository mappings"
 

@@ -75,12 +75,6 @@ tgoskits/                              # 主仓库根目录
     └── push.yml                      # 自动推送工作流
 ```
 
-**目录说明**：
-- **`components/`**：存放可复用的组件和库，每个组件都有独立的 Git 仓库
-- **`os/`**：完整的操作系统项目，也是通过 Subtree 管理
-- **`scripts/`**：自动化管理工具，用于组件的推送、拉取和检查
-- **`docs/`**：项目文档和使用说明
-
 ### 核心特性
 
 #### 1. 历史保留
@@ -108,10 +102,10 @@ git log --oneline --grep="subtree" --grep="arm_vcpu"
 支持两种同步方向：
 
 ```
-主仓库 (tgoskits)  ←──────→  组件仓库 (arm_vcpu)
-     │                                │
+主仓库 (tgoskits)  ←────────────────→  组件仓库
+     │                                   │
      ├─ scripts/push.sh ─────────────→ 推送修改
-     │                                │
+     │                                   │
      └─ scripts/pull.sh ←───────────── 拉取更新
 ```
 
@@ -122,119 +116,6 @@ git log --oneline --grep="subtree" --grep="arm_vcpu"
 - 组件仓库推送 → 自动触发主仓库拉取
 - 主仓库修改 → 手动或自动推送到组件仓库
 - 支持批量操作和定时检查
-
----
-
-## Git Subtree 基础
-
-### 什么是 Git Subtree
-
-Git Subtree 是一种将外部仓库合并到主仓库子目录的方法，它允许你：
-
-1. **嵌套仓库**：将其他仓库作为子目录嵌入到主仓库中
-2. **保留历史**：完整保留子仓库的所有提交历史
-3. **双向同步**：支持在主仓库和子仓库之间双向推送和拉取
-4. **无额外依赖**：不需要 `.gitmodules` 文件，克隆时无需特殊操作
-
-**与 Git Submodule 的对比**：
-
-| 特性 | Git Subtree | Git Submodule |
-|------|-------------|---------------|
-| 历史保留 | ✅ 完整保留 | ❌ 只保留引用 |
-| 克隆复杂度 | ✅ 简单（普通克隆） | ❌ 需要 `--recursive` |
-| 二进制大小 | ❌ 较大（包含完整历史） | ✅ 较小（仅引用） |
-| 操作复杂度 | ❌ 较复杂 | ✅ 简单 |
-| 离线工作 | ✅ 支持 | ❌ 需要网络 |
-
-### 为什么选择 Subtree
-
-TGOSKits 选择 Git Subtree 的原因：
-
-1. **保留开发历史**
-   - 可以追溯组件在独立仓库中的完整开发历程
-   - 方便代码审查和历史查询
-   - 支持跨仓库的 blame 和 log
-
-2. **简化协作**
-   - 开发者克隆主仓库即可获得所有代码
-   - 无需额外的初始化步骤
-   - 离线也能查看和修改组件代码
-
-3. **统一管理**
-   - 在主仓库中统一管理所有组件的版本
-   - 方便进行跨组件的重构和优化
-   - 统一的 CI/CD 流程
-
-4. **灵活发布**
-   - 组件可以独立发布到 crates.io
-   - 主仓库可以作为一个整体发布
-   - 支持不同的发布策略
-
-### 基本概念
-
-#### 1. Subtree 添加
-
-将外部仓库添加为主仓库的子目录：
-
-```bash
-# 语法
-git subtree add --prefix=<目录> <远程仓库> <分支> --squash
-
-# 示例
-git subtree add --prefix=components/arm_vcpu https://github.com/arceos-hypervisor/arm_vcpu main --squash
-```
-
-**参数说明**：
-- `--prefix`：指定子目录路径
-- `--squash`：将外部仓库的历史压缩为一个提交（可选）
-- 不使用 `--squash`：保留完整的提交历史
-
-#### 2. Subtree 拉取
-
-从外部仓库拉取最新更新：
-
-```bash
-# 语法
-git subtree pull --prefix=<目录> <远程仓库> <分支>
-
-# 示例
-git subtree pull --prefix=components/arm_vcpu https://github.com/arceos-hypervisor/arm_vcpu main
-```
-
-**注意**：
-- 需要先提交或暂存当前的修改
-- 如果有冲突需要手动解决
-- 建议使用 `-m` 参数指定合并提交信息
-
-#### 3. Subtree 推送
-
-将主仓库中的修改推送到外部仓库：
-
-```bash
-# 语法
-git subtree push --prefix=<目录> <远程仓库> <分支>
-
-# 示例
-git subtree push --prefix=components/arm_vcpu https://github.com/arceos-hypervisor/arm_vcpu main
-```
-
-**注意**：
-- 会提取主仓库中对该子目录的所有修改
-- 生成新的提交并推送到外部仓库
-- 如果远程有新提交，需要先拉取再推送
-
-#### 4. Remote 管理
-
-为了简化操作，通常先添加远程仓库：
-
-```bash
-# 添加远程仓库
-git remote add components/arm_vcpu https://github.com/arceos-hypervisor/arm_vcpu
-
-# 使用简化的命令
-git subtree pull --prefix=components/arm_vcpu components/arm_vcpu main
-git subtree push --prefix=components/arm_vcpu components/arm_vcpu main
-```
 
 ---
 
@@ -454,68 +335,71 @@ tgoskits (主仓库)
 将主仓库中的组件修改推送到各个组件的独立仓库。
 
 ```bash
-# 推送所有修改的组件
-scripts/push.sh
+# 推送所有有更改的组件（到 dev 分支）
+scripts/push.sh -f
 
-# 推送指定组件
-scripts/push.sh -r arm_vcpu
+# 推送所有组件（包括未更改的）
+scripts/push.sh -f --no-skip-unchanged
+
+# 推送指定组件到 dev 分支
+scripts/push.sh -c arm_vcpu -b dev
 
 # 推送到指定分支
-scripts/push.sh -r arm_vcpu -b dev
+scripts/push.sh -c arm_vcpu -b main
 
 # 强制推送（覆盖远程）
-scripts/push.sh -r arm_vcpu --force
+scripts/push.sh -c arm_vcpu --force
 
 # 自动提交并推送
-scripts/push.sh -r arm_vcpu -c "feat: update arm_vcpu"
+scripts/push.sh -c arm_vcpu -m "feat: update arm_vcpu"
 
 # 预览操作（不实际执行）
-scripts/push.sh --dry-run -r arm_vcpu
+scripts/push.sh --dry-run -f
 ```
 
 **选项说明：**
-- `-r, --repo <dir>` - 指定组件目录（可多次使用）
-- `-b, --branch <branch>` - 指定目标分支（默认 main）
-- `-c, --commit <msg>` - 自动提交信息
-- `--force` - 强制推送（覆盖远程）
-- `-a, --all` - 推送所有组件
-- `-d, --dry-run` - 预览模式
+- `-f, --file <file>` - 指定仓库列表文件并推送其中所有仓库（默认为 scripts/repos.list）
+- `-c, --component <dir>` - 指定要推送的组件目录（需配合 -b 使用）
+- `-b, --branch <branch>` - 指定推送的目标分支（默认为 dev）
+- `-m, --commit <msg>` - 提交信息（如果没有提交会自动创建）
+- `--force` - 强制推送（即使远程有更新也覆盖）
+- `--no-skip-unchanged` - 不跳过没有更改的组件（默认跳过）
+- `-d, --dry-run` - 仅显示将要执行的操作，不实际执行
+- `-h, --help` - 显示帮助信息
+
+**注意：**
+- 默认推送到子仓库的 `dev` 分支
+- 自动跳过没有更改的组件
+- 如果遇到 `non-fast-forward` 错误，说明远程分支有更新，可以使用 `--force` 强制推送
 
 ##### pull.sh - 从组件仓库拉取更新
 
 从各个组件的独立仓库拉取更新到主仓库。
 
 ```bash
-# 拉取指定组件的更新
-scripts/pull.sh -r arm_vcpu
+# 拉取默认文件中所有仓库
+scripts/pull.sh -f
+
+# 拉取指定文件中所有仓库
+scripts/pull.sh -f repos.list
 
 # 拉取指定组件的指定分支
-scripts/pull.sh -r arm_vcpu -b dev
-
-# 拉取所有组件的更新
-scripts/pull.sh -a
+scripts/pull.sh -c arm_vcpu -b dev
 
 # 预览拉取操作
-scripts/pull.sh --dry-run -a
+scripts/pull.sh --dry-run -f
 ```
 
 **选项说明：**
-- `-r, --repo <dir>` - 指定组件目录（可多次使用）
-- `-b, --branch <branch>` - 指定拉取分支
-- `-a, --all` - 拉取所有组件
-- `-d, --dry-run` - 预览模式
+- `-f, --file <file>` - 指定仓库列表文件并拉取其中所有仓库（默认为 scripts/repos.list）
+- `-c, --component <dir>` - 指定要拉取的组件目录（需配合 -b 使用）
+- `-b, --branch <branch>` - 指定要拉取的分支（需配合 -c 使用）
+- `-d, --dry-run` - 仅显示将要执行的操作，不实际执行
+- `-h, --help` - 显示帮助信息
 
-##### 其他辅助脚本
-
-```bash
-# 管理组件仓库
-scripts/repos.sh                    # 使用默认配置添加所有组件
-scripts/repos.sh -f custom.list     # 使用自定义配置文件
-
-# 检查组件状态
-scripts/check.sh all                # 检查所有组件
-scripts/check.sh arm_vcpu           # 检查指定组件
-```
+**注意：**
+- CI/CD 自动拉取时会推送到主仓库的 `next` 分支
+- 组件名支持简写（如 `arm_vcpu` 会自动识别为 `components/arm_vcpu`）
 
 #### GitHub Actions Workflows（CI/CD）
 
@@ -594,15 +478,15 @@ git push origin main
 
 ```bash
 # 在主仓库中修改组件代码
-vim arm_vcpu/src/lib.rs
-git add arm_vcpu/src/lib.rs
+vim components/arm_vcpu/src/lib.rs
+git add components/arm_vcpu/src/lib.rs
 git commit -m "feat: update arm_vcpu"
 
-# 推送到组件仓库
-scripts/push.sh -r arm_vcpu
+# 推送到组件仓库的 dev 分支（默认）
+scripts/push.sh -c arm_vcpu -b dev
 
 # 或使用自动提交
-scripts/push.sh -r arm_vcpu -c "feat: update arm_vcpu"
+scripts/push.sh -c arm_vcpu -m "feat: update arm_vcpu"
 ```
 
 ---
@@ -717,36 +601,33 @@ https://github.com/arceos-org/arceos|dev|arceos
 
 ```bash
 # 1. 在主仓库中修改组件代码
-vim arm_vcpu/src/lib.rs
+vim components/arm_vcpu/src/lib.rs
 
 # 2. 提交更改
-git add arm_vcpu/src/lib.rs
+git add components/arm_vcpu/src/lib.rs
 git commit -m "feat: update arm_vcpu"
 
-# 3. 推送到组件仓库
-scripts/push.sh -r arm_vcpu
+# 3. 推送到组件仓库的 dev 分支（默认）
+scripts/push.sh -c arm_vcpu -b dev
 ```
 
 ##### 高级用法
 
 ```bash
 # 自动提交并推送（一步完成）
-scripts/push.sh -r arm_vcpu -c "feat: update arm_vcpu"
-
-# 推送多个组件
-scripts/push.sh -r arm_vcpu -r axvm -r axvisor
+scripts/push.sh -c arm_vcpu -m "feat: update arm_vcpu"
 
 # 推送到指定分支
-scripts/push.sh -r arm_vcpu -b dev
+scripts/push.sh -c arm_vcpu -b main
 
 # 强制推送（覆盖远程）
-scripts/push.sh -r arm_vcpu --force
+scripts/push.sh -c arm_vcpu --force
 
-# 推送所有修改的组件
-scripts/push.sh
+# 推送所有有更改的组件
+scripts/push.sh -f
 
-# 推送所有组件（无论是否修改）
-scripts/push.sh -a
+# 推送所有组件（包括未更改的）
+scripts/push.sh -f --no-skip-unchanged
 ```
 
 #### 拉取操作（组件仓库 → 主仓库）
@@ -754,17 +635,14 @@ scripts/push.sh -a
 ##### 手动拉取
 
 ```bash
-# 拉取指定组件的更新
-scripts/pull.sh -r arm_vcpu
-
 # 拉取指定组件的指定分支
-scripts/pull.sh -r arm_vcpu -b dev
+scripts/pull.sh -c arm_vcpu -b dev
 
 # 拉取所有组件的更新
-scripts/pull.sh -a
+scripts/pull.sh -f
 
 # 预览拉取操作
-scripts/pull.sh --dry-run -a
+scripts/pull.sh --dry-run -f
 ```
 
 ##### 自动拉取
@@ -779,11 +657,11 @@ scripts/pull.sh --dry-run -a
 #### 批量操作
 
 ```bash
-# 批量推送所有修改的组件
-scripts/push.sh
+# 批量推送所有有更改的组件
+scripts/push.sh -f
 
 # 批量拉取所有组件
-scripts/pull.sh -a
+scripts/pull.sh -f
 
 # 批量检查所有组件状态
 scripts/check.sh all
@@ -816,7 +694,7 @@ scripts/check.sh all
 ```
 主仓库修改组件代码 
   → git commit 
-  → scripts/push.sh -r <component>
+  → scripts/push.sh -c <component> -b <branch>
   → 组件仓库收到更新
 ```
 
@@ -825,7 +703,7 @@ scripts/check.sh all
 ```
 组件仓库更新
   → 手动触发或自动触发
-  → 主仓库执行 scripts/pull.sh -r <component>
+  → 主仓库执行 scripts/pull.sh -c <component> -b <branch>
   → 主仓库收到更新
 ```
 
@@ -842,7 +720,7 @@ scripts/check.sh all
    git push origin main
    ↓
 4. 推送到组件仓库
-   scripts/push.sh -r <component>
+   scripts/push.sh -c <component> -b <branch>
 ```
 
 ---
@@ -863,14 +741,14 @@ error: failed to push some refs
 
 ```bash
 # 方案1：强制推送（覆盖远程）
-scripts/push.sh -r <component> --force
+scripts/push.sh -c <component> -b <branch> --force
 
 # 方案2：先拉取再推送
-scripts/pull.sh -r <component>
-scripts/push.sh -r <component>
+scripts/pull.sh -c <component> -b <branch>
+scripts/push.sh -c <component> -b <branch>
 ```
 
-### 拉取失败：冲突
+#### 拉取失败：冲突
 
 **原因**：主仓库和组件仓库都有修改
 
@@ -878,7 +756,7 @@ scripts/push.sh -r <component>
 
 ```bash
 # 手动拉取并解决冲突
-scripts/pull.sh -r <component>
+scripts/pull.sh -c <component> -b <branch>
 
 # 解决冲突
 # ... 手动编辑冲突文件 ...
@@ -889,7 +767,7 @@ git commit -m "resolve conflicts in <component>"
 git push origin main
 
 # 推送到组件仓库
-scripts/push.sh -r <component>
+scripts/push.sh -c <component> -b <branch>
 ```
 
 #### Token 权限不足
@@ -938,7 +816,7 @@ scripts/push.sh -r <component>
 
 2. **预览推送操作**
    ```bash
-   scripts/push.sh --dry-run -r <component>
+   scripts/push.sh --dry-run -c <component> -b <branch>
    ```
 
 3. **检查组件状态**
@@ -966,10 +844,10 @@ scripts/push.sh -r <component>
 
 ```bash
 # 推送到开发分支
-scripts/push.sh -r arm_vcpu -b dev
+scripts/push.sh -c arm_vcpu -b dev
 
 # 合并到主分支后推送
-scripts/push.sh -r arm_vcpu -b main
+scripts/push.sh -c arm_vcpu -b main
 ```
 
 #### 定期维护
@@ -979,7 +857,7 @@ scripts/push.sh -r arm_vcpu -b main
 scripts/check.sh all
 
 # 定期拉取所有组件更新
-scripts/pull.sh -a
+scripts/pull.sh -f
 
 # 清理不需要的 remote
 git remote prune origin
