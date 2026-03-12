@@ -254,6 +254,12 @@ class GitSubtreeManager:
             # Remove the directory
             subprocess.run(['git', 'rm', '-r', '--cached', target_dir], check=True)
             subprocess.run(['rm', '-rf', target_dir])
+            # Commit the removal to avoid leaving uncommitted changes
+            repo_name = self.get_repo_name(url)
+            subprocess.run([
+                'git', 'commit', '-m',
+                f'Remove subtree {target_dir} before force re-add'
+            ], check=True)
             # Re-add the subtree
             self.add_subtree(url, target_dir, branch)
             return
