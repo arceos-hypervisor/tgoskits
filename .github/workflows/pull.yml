@@ -85,10 +85,35 @@ jobs:
           
           # 从 repos.list 中查找组件的仓库 URL
           if [ -f "scripts/repos.list" ]; then
-            REPO_URL=$(grep -E "^[^#]*\|.*\|.*${COMPONENT}$|^[^#]*\|${COMPONENT}$" scripts/repos.list | head -1 | cut -d'|' -f1 | xargs)
+            # 读取 repos.list，查找包含组件目录的行
+            while IFS='|' read -r url branch dir; do
+              # 跳过注释和空行
+              [[ "$url" =~ ^[[:space:]]*# ]] && continue
+              [[ -z "${url// }" ]] && continue
+              
+              # 处理两字段格式 (url|dir)
+              if [[ -z "$dir" ]]; then
+                dir="$branch"
+                branch=""
+              fi
+              
+              # 去除空格
+              url=$(echo "$url" | xargs)
+              dir=$(echo "$dir" | xargs)
+              
+              # 检查目录名是否匹配（支持完整路径或最后一段）
+              dir_name=$(basename "$dir")
+              if [[ "$dir" == "${COMPONENT}" || "$dir_name" == "${COMPONENT}" ]]; then
+                REPO_URL="$url"
+                FULL_DIR="$dir"
+                echo "Found component: ${COMPONENT} -> ${REPO_URL} (dir: ${FULL_DIR})"
+                break
+              fi
+            done < "scripts/repos.list"
+            
             if [ -n "$REPO_URL" ]; then
               echo "repo_url=${REPO_URL}" >> $GITHUB_OUTPUT
-              echo "Found component: ${COMPONENT} -> ${REPO_URL}"
+              echo "full_dir=${FULL_DIR}" >> $GITHUB_OUTPUT
             else
               echo "Error: Component ${COMPONENT} not found in repos.list"
               exit 1
@@ -101,29 +126,34 @@ jobs:
       - name: Pull subtree updates
         run: |
           COMPONENT="${{ steps.component.outputs.component }}"
+          FULL_DIR="${{ steps.component.outputs.full_dir }}"
           BRANCH="${{ steps.component.outputs.branch }}"
           REPO_URL="${{ steps.component.outputs.repo_url }}"
           
           echo "Pulling updates for ${COMPONENT} from ${REPO_URL}:${BRANCH}"
+          echo "Target directory: ${FULL_DIR}"
           
           # 检查组件目录是否存在
-          if [ ! -d "${COMPONENT}" ]; then
-            echo "Error: Component directory ${COMPONENT} does not exist"
+          if [ ! -d "${FULL_DIR}" ]; then
+            echo "Error: Component directory ${FULL_DIR} does not exist"
             exit 1
           fi
           
+          # 使用简化的 remote 名称（替换 / 为 _）
+          REMOTE_NAME=$(echo "${FULL_DIR}" | tr '/' '_')
+          
           # 添加或更新 remote
-          if git remote | grep -q "^${COMPONENT}$"; then
-            git remote set-url "${COMPONENT}" "${REPO_URL}"
+          if git remote | grep -q "^${REMOTE_NAME}$"; then
+            git remote set-url "${REMOTE_NAME}" "${REPO_URL}"
           else
-            git remote add "${COMPONENT}" "${REPO_URL}"
+            git remote add "${REMOTE_NAME}" "${REPO_URL}"
           fi
           
           # 获取远程更新
-          git fetch "${COMPONENT}" --no-tags
+          git fetch "${REMOTE_NAME}" --no-tags
           
           # 执行 subtree pull
-          git subtree pull --prefix="${COMPONENT}" "${COMPONENT}" "${BRANCH}" -m "Merge subtree ${COMPONENT}/${BRANCH}"
+          git subtree pull --prefix="${FULL_DIR}" "${REMOTE_NAME}" "${BRANCH}" -m "Merge subtree ${FULL_DIR}/${BRANCH}"
 
       - name: Push changes
         run: |
@@ -142,12 +172,14 @@ jobs:
       - name: Create summary
         run: |
           COMPONENT="${{ steps.component.outputs.component }}"
+          FULL_DIR="${{ steps.component.outputs.full_dir }}"
           BRANCH="${{ steps.component.outputs.branch }}"
           REPO_URL="${{ steps.component.outputs.repo_url }}"
           
           echo "## Subtree Pull Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Component**: ${COMPONENT}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Directory**: ${FULL_DIR}" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch**: ${BRANCH}" >> $GITHUB_STEP_SUMMARY
           echo "- **Repository**: ${REPO_URL}" >> $GITHUB_STEP_SUMMARY
           echo "- **Status**: ✅ Success" >> $GITHUB_STEP_SUMMARY
