@@ -112,7 +112,7 @@ jobs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
             [[ -z "${line// }" ]] && continue
             
-            local url branch dir
+            url="" branch="" dir=""
             IFS='|' read -r url branch dir <<< "$line"
             
             if [[ -z "$dir" ]]; then
@@ -132,7 +132,6 @@ jobs:
           
           while IFS= read -r file; do
             # 获取文件的第一级或第二级目录
-            local top_dir
             top_dir=$(echo "$file" | cut -d'/' -f1-2)
             
             # 检查是否是已配置的组件目录
@@ -207,7 +206,7 @@ jobs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
             [[ -z "${line// }" ]] && continue
             
-            local url branch dir
+            url="" branch="" dir=""
             IFS='|' read -r url branch dir <<< "$line"
             
             if [[ -z "$dir" ]]; then
