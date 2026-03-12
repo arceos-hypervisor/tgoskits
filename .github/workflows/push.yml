@@ -1,6 +1,38 @@
 name: Push to Subrepos
 
-# 当推送到主分支时触发
+# ═══════════════════════════════════════════════════════════════════════════════
+# 使用说明 / Usage Guide
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# 此工作流用于将主仓库中修改的组件自动推送到对应的子仓库。
+#
+# 【SSH 配置】（推荐）
+# ─────────────────────────────────────────────────────────────────────────────
+# 如果子仓库使用 SSH 地址（git@github.com:...），需要配置 SSH 密钥：
+#
+#   1. 生成 SSH 密钥对（如果没有）：
+#      ssh-keygen -t ed25519 -C "github-actions" -f deploy_key -N ""
+#
+#   2. 将公钥（deploy_key.pub）添加到目标仓库的 Deploy Keys：
+#      GitHub 仓库 → Settings → Deploy keys → Add new
+#
+#   3. 将私钥（deploy_key）添加到本仓库的 Secrets：
+#      GitHub 仓库 → Settings → Secrets → Actions → New repository secret
+#      名称: SSH_KEY
+#      值: 私钥内容
+#
+# 【HTTPS 配置】（无需 SSH）
+# ─────────────────────────────────────────────────────────────────────────────
+# 如果 scripts/repos.list 中的仓库地址使用 HTTPS（https://github.com/...），
+# 则无需配置 SSH_KEY，工作流会使用内置的 GITHUB_TOKEN 进行推送。
+#
+# 【触发方式】
+# ─────────────────────────────────────────────────────────────────────────────
+# - 自动触发：推送到 main/master/dev/next 分支时自动检测变更并推送
+# - 手动触发：Actions → Push to Subrepos → Run workflow
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 on:
   push:
     branches:
@@ -139,9 +171,11 @@ jobs:
 
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.7.0
+        if: ${{ env.SSH_KEY != '' }}
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
-        if: ${{ secrets.SSH_KEY != '' }}
 
       - name: Configure Git
         run: |
