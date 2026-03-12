@@ -1,0 +1,24 @@
+# Release & Deploy - References arceos-hypervisor/axci
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  check:
+    uses: ./.github/workflows/check.yml
+
+  test:
+    uses: ./.github/workflows/test.yml
+
+  release:
+    needs: [check, test]
+    uses: arceos-hypervisor/axci/.github/workflows/release.yml@dev
+    secrets: inherit
+
+  deploy:
+    needs: [check, test]
+    uses: arceos-hypervisor/axci/.github/workflows/deploy.yml@dev

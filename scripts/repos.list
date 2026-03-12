@@ -1,0 +1,100 @@
+# 组件仓库列表
+# 格式: <仓库URL>|分支名|<目标目录>
+#   - 分支名可选，如果不指定则自动检测（优先 main，其次 master，最后默认分支）
+#   - 以 # 开头的行为注释，会被忽略
+#   - 空行会被忽略
+#
+# 目录组织规则：
+#   - 完整的操作系统（OS）放在 os/ 目录下
+#   - 可复用的组件和库放在 components/ 目录下
+#
+# 示例:
+#   https://github.com/user/repo|main|os/myos           # OS 项目
+#   https://github.com/user/repo|main|components/mylib  # 组件库
+
+# =============================================================================
+# OS 项目 - 完整的操作系统内核
+# =============================================================================
+
+# axvisor - ArceOS Hypervisor
+https://github.com/arceos-hypervisor/axvisor||os/axvisor
+
+# StarryOS - 教学操作系统
+https://github.com/Starry-OS/StarryOS||os/StarryOS
+
+# =============================================================================
+# ArceOS Hypervisor 组件 - 虚拟化相关组件
+# =============================================================================
+
+https://github.com/arceos-hypervisor/aarch64_sysreg||components/aarch64_sysreg
+https://github.com/arceos-hypervisor/axaddrspace||components/axaddrspace
+https://github.com/arceos-hypervisor/axdevice||components/axdevice
+https://github.com/arceos-hypervisor/axdevice_base||components/axdevice_base
+https://github.com/arceos-hypervisor/axhvc||components/axhvc
+https://github.com/arceos-hypervisor/axklib||components/axklib
+https://github.com/arceos-hypervisor/axvcpu||components/axvcpu
+https://github.com/arceos-hypervisor/axvisor_api||components/axvisor_api
+https://github.com/arceos-hypervisor/axvm||components/axvm
+https://github.com/arceos-hypervisor/axvmconfig||components/axvmconfig
+https://github.com/arceos-hypervisor/range-alloc||components/range-alloc-arceos
+https://github.com/arceos-hypervisor/x86_vcpu||components/x86_vcpu
+https://github.com/arceos-hypervisor/arm_vcpu||components/arm_vcpu
+https://github.com/arceos-hypervisor/arm_vgic||components/arm_vgic
+https://github.com/arceos-hypervisor/riscv_vcpu||components/riscv_vcpu
+https://github.com/arceos-hypervisor/riscv-h||components/riscv-h
+https://github.com/arceos-hypervisor/riscv_vplic||components/riscv_vplic
+
+# =============================================================================
+# ArceOS 组件 - 操作系统框架和基础组件
+# =============================================================================
+
+https://github.com/arceos-org/arceos|dev|components/arceos
+https://github.com/arceos-org/allocator||components/axallocator
+https://github.com/arceos-org/axconfig-gen||components/axconfig-gen
+https://github.com/arceos-org/axcpu||components/axcpu
+https://github.com/arceos-org/axerrno||components/axerrno
+https://github.com/arceos-org/axio||components/axio
+https://github.com/arceos-org/axsched||components/axsched
+https://github.com/arceos-org/cpumask||components/cpumask
+https://github.com/arceos-org/crate_interface||components/crate_interface
+https://github.com/arceos-org/ctor_bare||components/ctor_bare
+https://github.com/arceos-org/handler_table||components/handler_table
+https://github.com/arceos-org/kernel_guard||components/kernel_guard
+https://github.com/arceos-org/kspin||components/kspin
+https://github.com/arceos-org/lazyinit||components/lazyinit
+https://github.com/arceos-org/linked_list_r4l||components/linked_list_r4l
+https://github.com/arceos-org/axmm_crates||components/axmm_crates
+https://github.com/arceos-org/page_table_multiarch||components/page_table_multiarch
+https://github.com/arceos-org/percpu||components/percpu
+https://github.com/arceos-org/timer_list||components/timer_list
+https://github.com/arceos-org/axdriver_crates||components/axdriver_crates
+https://github.com/arceos-org/axplat_crates||components/axplat_crates
+https://github.com/arceos-org/int_ratio||components/int_ratio
+https://github.com/arceos-org/cap_access||components/cap_access
+https://github.com/arceos-org/arm_pl011||components/arm_pl011
+https://github.com/arceos-org/arm_pl031||components/arm_pl031
+https://github.com/arceos-org/riscv_plic||components/riscv_plic
+
+# =============================================================================
+# rCore OS 组件 - 驱动和基础组件
+# =============================================================================
+
+https://github.com/rcore-os/bitmap-allocator||components/bitmap-allocator
+https://github.com/rcore-os/virtio-drivers||components/virtio-drivers
+https://github.com/rcore-os/arm-gic-driver||components/arm-gic-driver
+https://github.com/rcore-os/any-uart||components/any-uart
+https://github.com/rcore-os/somehal||components/somehal
+
+# =============================================================================
+# Starry OS 组件 - 进程管理和文件系统组件
+# =============================================================================
+
+https://github.com/Starry-OS/axbacktrace||components/axbacktrace
+https://github.com/Starry-OS/axpoll||components/axpoll
+https://github.com/Starry-OS/axfs-ng-vfs||components/axfs-ng-vfs
+https://github.com/Starry-OS/rsext4||components/rsext4
+https://github.com/Starry-OS/scope-local||components/scope-local
+https://github.com/Starry-OS/starry-process||components/starry-process
+https://github.com/Starry-OS/starry-signal||components/starry-signal
+https://github.com/Starry-OS/starry-vm||components/starry-vm
+https://github.com/Starry-OS/smoltcp||components/starry-smoltcp

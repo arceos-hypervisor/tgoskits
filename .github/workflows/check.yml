@@ -1,0 +1,16 @@
+# Quality Check - References arceos-hypervisor/axci
+
+name: Check
+
+on:
+  push:
+    branches:
+      - '**'
+    tags-ignore:
+      - '**'
+  pull_request:
+  workflow_call:
+
+jobs:
+  check:
+    uses: arceos-hypervisor/axci/.github/workflows/check.yml@dev

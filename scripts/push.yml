@@ -1,0 +1,77 @@
+# 组件仓库 GitHub Actions 配置模板
+# 将此文件复制到组件仓库的 .github/workflows/ 目录中
+#
+# 注意: 主仓库向子仓库推送时，会推送到子仓库的 dev 分支
+#       此工作流主要监听 dev 分支的推送，通知主仓库进行 subtree pull
+
+name: Notify Parent Repository
+
+# 当有新的推送时触发
+on:
+  push:
+    branches:
+      - dev    # 主仓库推送的目标分支
+      - main   # 兼容直接在子仓库开发的情况
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get repository info
+        id: repo
+        run: |
+          # 从仓库 URL 中提取组件名称
+          # 例如: https://github.com/arceos-hypervisor/arm_vcpu -> arm_vcpu
+          REPO_URL="${{ github.repositoryUrl }}"
+          COMPONENT=$(echo "${REPO_URL}" | sed 's|.*/||' | sed 's|\.git$||')
+          BRANCH="${{ github.ref_name }}"
+          
+          echo "component=${COMPONENT}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          
+          echo "Component: ${COMPONENT}"
+          echo "Branch: ${BRANCH}"
+
+      - name: Notify parent repository
+        env:
+          # 需要在组件仓库的 Secrets 中配置 PARENT_REPO_TOKEN
+          # 这个 token 需要有主仓库的 repo 权限
+          GITHUB_TOKEN: ${{ secrets.PARENT_REPO_TOKEN }}
+        run: |
+          COMPONENT="${{ steps.repo.outputs.component }}"
+          BRANCH="${{ steps.repo.outputs.branch }}"
+          PARENT_REPO="rcore-os/tgoskits"  # 主仓库的路径
+          
+          echo "Notifying parent repository about update in ${COMPONENT}:${BRANCH}"
+          
+          # 使用 GitHub API 触发主仓库的 repository_dispatch 事件
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            https://api.github.com/repos/${PARENT_REPO}/dispatches \
+            -d "{
+              \"event_type\": \"subtree-update\",
+              \"client_payload\": {
+                \"component\": \"${COMPONENT}\",
+                \"branch\": \"${BRANCH}\",
+                \"commit\": \"${{ github.sha }}\",
+                \"message\": \"${{ github.event.head_commit.message }}\",
+                \"author\": \"${{ github.actor }}\"
+              }
+            }"
+          
+          echo "Notification sent successfully"
+
+      - name: Create summary
+        run: |
+          COMPONENT="${{ steps.repo.outputs.component }}"
+          BRANCH="${{ steps.repo.outputs.branch }}"
+          
+          echo "## Notification Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Component**: ${COMPONENT}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${BRANCH}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Author**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Notification sent" >> $GITHUB_STEP_SUMMARY

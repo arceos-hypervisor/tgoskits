@@ -1,0 +1,180 @@
+name: Sync Subrepos
+
+# 当推送到主分支时触发，或者手动触发
+on:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+      - next
+  workflow_dispatch:
+    inputs:
+      direction:
+        description: '同步方向'
+        required: true
+        type: choice
+        options:
+          - pull
+          - push
+          - both
+        default: 'both'
+      components:
+        description: '指定组件（逗号分隔，留空表示所有）'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # 只在不是 git subrepo 自动提交时运行
+    if: ${{ !contains(github.event.head_commit.message, 'git subrepo') }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+        if: ${{ secrets.SSH_KEY != '' }}
+
+      - name: Setup Git Subrepo
+        run: |
+          git clone https://github.com/ingydotnet/git-subrepo /opt/git-subrepo
+          echo 'source /opt/git-subrepo/.rc' >> ~/.bashrc
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "$(git log -n 1 --pretty=format:%an)"
+          git config --global user.email "$(git log -n 1 --pretty=format:%ae)"
+
+      - name: Get sync parameters
+        id: params
+        run: |
+          # 获取同步方向
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            DIRECTION="${{ inputs.direction }}"
+            COMPONENTS="${{ inputs.components }}"
+          else
+            # 自动模式下执行双向同步
+            DIRECTION="both"
+            COMPONENTS=""
+          fi
+          
+          echo "direction=${DIRECTION}" >> $GITHUB_OUTPUT
+          echo "components=${COMPONENTS}" >> $GITHUB_OUTPUT
+          
+          echo "Sync Direction: ${DIRECTION}"
+          echo "Components: ${COMPONENTS:-all}"
+
+      - name: Pull from subrepos
+        if: ${{ steps.params.outputs.direction == 'pull' || steps.params.outputs.direction == 'both' }}
+        run: |
+          source /opt/git-subrepo/.rc
+          
+          COMPONENTS="${{ steps.params.outputs.components }}"
+          
+          if [ -n "$COMPONENTS" ]; then
+            # 同步指定组件
+            IFS=',' read -ra COMP_ARRAY <<< "$COMPONENTS"
+            for comp in "${COMP_ARRAY[@]}"; do
+              comp=$(echo "$comp" | xargs)  # 去除空格
+              echo "Pulling subrepo: ${comp}"
+              git subrepo pull "$comp" || echo "Warning: Failed to pull ${comp}"
+            done
+          else
+            # 同步所有组件
+            echo "Pulling all subrepos..."
+            git subrepo pull --all || echo "Warning: Some pulls failed"
+          fi
+
+      - name: Push to subrepos
+        if: ${{ steps.params.outputs.direction == 'push' || steps.params.outputs.direction == 'both' }}
+        run: |
+          source /opt/git-subrepo/.rc
+          
+          COMPONENTS="${{ steps.params.outputs.components }}"
+          
+          if [ -n "$COMPONENTS" ]; then
+            # 同步指定组件
+            IFS=',' read -ra COMP_ARRAY <<< "$COMPONENTS"
+            for comp in "${COMP_ARRAY[@]}"; do
+              comp=$(echo "$comp" | xargs)  # 去除空格
+              echo "Pushing subrepo: ${comp}"
+              git subrepo push "$comp" || echo "Warning: Failed to push ${comp}"
+            done
+          else
+            # 同步所有组件
+            echo "Pushing all subrepos..."
+            git subrepo push --all || echo "Warning: Some pushes failed"
+          fi
+
+      - name: Update .gitrepo files
+        run: |
+          source /opt/git-subrepo/.rc
+          
+          # 获取当前主仓库的 commit ID
+          PARENT_COMMIT_ID=$(git log -1 --pretty=%H | head -n 1)
+          echo "Parent commit ID: ${PARENT_COMMIT_ID}"
+          
+          # 更新所有 .gitrepo 文件中的 parent commit
+          find . -name ".gitrepo" -type f | while read -r gitrepo_file; do
+            dir=$(dirname "$gitrepo_file")
+            dir=${dir#./}
+            
+            if [ -f "$gitrepo_file" ]; then
+              echo "Updating parent commit in ${dir}/.gitrepo"
+              # 使用 sed 更新 parent 行
+              sed -i "s/^\tparent = .*/\tparent = ${PARENT_COMMIT_ID}/" "$gitrepo_file"
+            fi
+          done
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes to commit"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changes detected"
+          fi
+
+      - name: Commit and push changes
+        if: ${{ steps.changes.outputs.has_changes == 'true' }}
+        run: |
+          # 获取原始提交信息
+          ORIGINAL_MESSAGE=$(git log -1 --pretty=%B | head -n 1)
+          
+          git add -A
+          git commit -m "git subrepo sync: ${ORIGINAL_MESSAGE}"
+          
+          # 推送到当前分支
+          BRANCH="${{ github.ref_name }}"
+          git push origin "HEAD:${BRANCH}"
+          
+          echo "Changes committed and pushed to ${BRANCH}"
+
+      - name: Create summary
+        run: |
+          DIRECTION="${{ steps.params.outputs.direction }}"
+          COMPONENTS="${{ steps.params.outputs.components }}"
+          BRANCH="${{ github.ref_name }}"
+          HAS_CHANGES="${{ steps.changes.outputs.has_changes }}"
+          
+          echo "## Subrepo Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Direction**: ${DIRECTION}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${BRANCH}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Components**: ${COMPONENTS:-all}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Changes**: ${HAS_CHANGES}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Success" >> $GITHUB_STEP_SUMMARY

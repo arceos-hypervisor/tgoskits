@@ -1,0 +1,116 @@
+name: Subtree Pull
+
+# 当收到组件仓库的更新通知时触发
+on:
+  repository_dispatch:
+    types: [subtree-update]
+  workflow_dispatch:
+    inputs:
+      component:
+        description: '组件目录名'
+        required: true
+        type: string
+      branch:
+        description: '组件分支'
+        required: false
+        type: string
+        default: 'main'
+
+permissions:
+  contents: write
+
+jobs:
+  subtree-pull:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: next
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Get component info
+        id: component
+        run: |
+          # 从 workflow_dispatch 或 repository_dispatch 获取组件信息
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            COMPONENT="${{ inputs.component }}"
+            BRANCH="${{ inputs.branch }}"
+          else
+            COMPONENT="${{ github.event.client_payload.component }}"
+            BRANCH="${{ github.event.client_payload.branch || 'main' }}"
+          fi
+          
+          echo "component=${COMPONENT}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          
+          # 从 repos.list 中查找组件的仓库 URL
+          if [ -f "scripts/repos.list" ]; then
+            REPO_URL=$(grep -E "^[^#]*\|.*\|.*${COMPONENT}$|^[^#]*\|${COMPONENT}$" scripts/repos.list | head -1 | cut -d'|' -f1 | xargs)
+            if [ -n "$REPO_URL" ]; then
+              echo "repo_url=${REPO_URL}" >> $GITHUB_OUTPUT
+              echo "Found component: ${COMPONENT} -> ${REPO_URL}"
+            else
+              echo "Error: Component ${COMPONENT} not found in repos.list"
+              exit 1
+            fi
+          else
+            echo "Error: scripts/repos.list not found"
+            exit 1
+          fi
+
+      - name: Pull subtree updates
+        run: |
+          COMPONENT="${{ steps.component.outputs.component }}"
+          BRANCH="${{ steps.component.outputs.branch }}"
+          REPO_URL="${{ steps.component.outputs.repo_url }}"
+          
+          echo "Pulling updates for ${COMPONENT} from ${REPO_URL}:${BRANCH}"
+          
+          # 检查组件目录是否存在
+          if [ ! -d "${COMPONENT}" ]; then
+            echo "Error: Component directory ${COMPONENT} does not exist"
+            exit 1
+          fi
+          
+          # 添加或更新 remote
+          if git remote | grep -q "^${COMPONENT}$"; then
+            git remote set-url "${COMPONENT}" "${REPO_URL}"
+          else
+            git remote add "${COMPONENT}" "${REPO_URL}"
+          fi
+          
+          # 获取远程更新
+          git fetch "${COMPONENT}" --no-tags
+          
+          # 执行 subtree pull
+          git subtree pull --prefix="${COMPONENT}" "${COMPONENT}" "${BRANCH}" -m "Merge subtree ${COMPONENT}/${BRANCH}"
+
+      - name: Push changes
+        run: |
+          # 检查是否有变更
+          if git diff --quiet HEAD~1; then
+            echo "No changes to push"
+          else
+            git push origin HEAD:next
+            echo "Changes pushed to next branch successfully"
+          fi
+
+      - name: Create summary
+        run: |
+          COMPONENT="${{ steps.component.outputs.component }}"
+          BRANCH="${{ steps.component.outputs.branch }}"
+          REPO_URL="${{ steps.component.outputs.repo_url }}"
+          
+          echo "## Subtree Pull Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Component**: ${COMPONENT}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${BRANCH}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repository**: ${REPO_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Success" >> $GITHUB_STEP_SUMMARY
