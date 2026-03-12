@@ -325,9 +325,9 @@ main() {
         fi
         
         if sync_component "$dir" "$repo_url" "$branch" "$target_branch" "$dry_run" "$force_push"; then
-            ((success_count++))
+            success_count=$((success_count + 1))
         else
-            ((fail_count++))
+            fail_count=$((fail_count + 1))
         fi
     done
     

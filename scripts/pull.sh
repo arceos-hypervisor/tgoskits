@@ -233,9 +233,9 @@ main() {
         local pull_branch="${branch:-${repo_branch:-main}}"
         
         if pull_component "$dir" "$repo_url" "$pull_branch" "$dry_run"; then
-            ((success_count++))
+            success_count=$((success_count + 1))
         else
-            ((fail_count++))
+            fail_count=$((fail_count + 1))
         fi
     done
     
