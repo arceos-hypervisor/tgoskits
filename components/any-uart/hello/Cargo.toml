@@ -1,0 +1,16 @@
+[package]
+name = "hello"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+any-uart = { path = "../any-uart" }
+fdt-parser = "0.4"
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+aarch64-cpu = "10.0"
+smccc = "0.1"
+
+[[test]]
+name = "test"
+harness = false
