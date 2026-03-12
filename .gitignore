@@ -108,3 +108,9 @@ Thumbs.db
 __pycache__/
 *.pyc
 *.pyo
+
+
+*-schema.json
+.qemu*
+.build*
+.uboot*
