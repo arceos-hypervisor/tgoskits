@@ -55,7 +55,7 @@ https://github.com/arceos-hypervisor/riscv_vplic||components/riscv_vplic
 
 https://github.com/arceos-org/allocator||components/axallocator
 https://github.com/arceos-org/axconfig-gen||components/axconfig-gen
-https://github.com/arceos-org/axcpu||components/axcpu
+https://github.com/arceos-org/axcpu|dev|components/axcpu
 https://github.com/arceos-org/axerrno||components/axerrno
 https://github.com/arceos-org/axio||components/axio
 https://github.com/arceos-org/axsched||components/axsched
@@ -69,10 +69,10 @@ https://github.com/arceos-org/lazyinit||components/lazyinit
 https://github.com/arceos-org/linked_list_r4l||components/linked_list_r4l
 https://github.com/arceos-org/axmm_crates||components/axmm_crates
 https://github.com/arceos-org/page_table_multiarch||components/page_table_multiarch
-https://github.com/arceos-org/percpu||components/percpu
+https://github.com/arceos-org/percpu|dev|components/percpu
 https://github.com/arceos-org/timer_list||components/timer_list
 https://github.com/arceos-org/axdriver_crates||components/axdriver_crates
-https://github.com/arceos-org/axplat_crates||components/axplat_crates
+https://github.com/arceos-org/axplat_crates|dev|components/axplat_crates
 https://github.com/arceos-org/int_ratio||components/int_ratio
 https://github.com/arceos-org/cap_access||components/cap_access
 https://github.com/arceos-org/arm_pl011||components/arm_pl011
