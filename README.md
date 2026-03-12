@@ -36,7 +36,6 @@ arm_vcpu = "0.1"
 
 ### Basic Example
 
-
 ```rust
 use arm_vcpu::{Aarch64VCpu, Aarch64VCpuCreateConfig, has_hardware_support};
 
