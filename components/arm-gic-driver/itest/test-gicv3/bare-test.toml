@@ -1,3 +1,0 @@
-[qemu]
-args = "-machine virtualization=on,gic-version=3"
-graphic = false

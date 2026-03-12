@@ -82,15 +82,42 @@ class CSVManager:
                 writer.writerow(list(repo))
 
     def add_repo(self, url: str, target_dir: str, branch: str = "",
-                 category: str = "", description: str = "") -> None:
-        """Add a new repository entry to the CSV."""
+                 category: str = "", description: str = "", skip_if_exists: bool = False) -> bool:
+        """Add a new repository entry to the CSV. Returns True if added, False if already exists."""
         repos = self.load_repos()
 
         # Check for duplicate URL or target_dir
         for repo in repos:
             if repo.url == url:
+                # URL matches, verify branch and target_dir also match
+                differences = []
+                if repo.branch != branch:
+                    existing_branch = repo.branch if repo.branch else "main"
+                    new_branch = branch if branch else "main"
+                    differences.append(f"branch (existing: {existing_branch}, new: {new_branch})")
+                if repo.target_dir != target_dir:
+                    differences.append(f"target_dir (existing: {repo.target_dir}, new: {target_dir})")
+
+                if differences:
+                    raise ValueError(
+                        f"Repository with URL '{url}' already exists but has different "
+                        f"configuration: {', '.join(differences)}"
+                    )
+
+                # All fields match, skip
+                if skip_if_exists:
+                    return False
                 raise ValueError(f"Repository with URL '{url}' already exists")
+
             if repo.target_dir == target_dir:
+                # target_dir matches but URL is different
+                if repo.url != url:
+                    raise ValueError(
+                        f"Repository with target_dir '{target_dir}' already exists "
+                        f"with different URL (existing: {repo.url}, new: {url})"
+                    )
+                if skip_if_exists:
+                    return False
                 raise ValueError(f"Repository with target_dir '{target_dir}' already exists")
 
         new_repo = Repo(
@@ -102,6 +129,7 @@ class CSVManager:
         )
         repos.append(new_repo)
         self.save_repos(repos)
+        return True
 
     def remove_repo(self, repo_name: str) -> Repo:
         """Remove a repository entry by repo name. Returns the removed repo."""
@@ -238,15 +266,14 @@ def cmd_add(args: argparse.Namespace) -> int:
     category = args.category or ""
     description = args.description or ""
 
-    # Add to CSV
-    try:
-        csv_manager.add_repo(url, target_dir, branch, category, description)
+    # Add to CSV (skip if already exists)
+    added = csv_manager.add_repo(url, target_dir, branch, category, description, skip_if_exists=True)
+    if added:
         print(f"Added to CSV: {url} -> {target_dir}")
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+    else:
+        print(f"Repository already exists in CSV: {url}")
 
-    # Add git subtree
+    # Add git subtree (this will check if already added to git)
     try:
         git_manager.add_subtree(url, target_dir, branch)
         print(f"Successfully added subtree: {target_dir}")

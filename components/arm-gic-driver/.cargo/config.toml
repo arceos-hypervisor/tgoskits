@@ -1,5 +1,0 @@
-[build]
-target = "aarch64-unknown-none-softfloat"
-
-[target.'cfg(target_os = "none")']
-runner = "cargo osrun"
