@@ -89,12 +89,35 @@ class CSVManager:
         # Check for duplicate URL or target_dir
         for repo in repos:
             if repo.url == url:
+                # URL matches, verify branch and target_dir also match
+                differences = []
+                if repo.branch != branch:
+                    existing_branch = repo.branch if repo.branch else "main"
+                    new_branch = branch if branch else "main"
+                    differences.append(f"branch (existing: {existing_branch}, new: {new_branch})")
+                if repo.target_dir != target_dir:
+                    differences.append(f"target_dir (existing: {repo.target_dir}, new: {target_dir})")
+
+                if differences:
+                    raise ValueError(
+                        f"Repository with URL '{url}' already exists but has different "
+                        f"configuration: {', '.join(differences)}"
+                    )
+
+                # All fields match, skip
                 if skip_if_exists:
-                    return False  # Already exists, skip
+                    return False
                 raise ValueError(f"Repository with URL '{url}' already exists")
+
             if repo.target_dir == target_dir:
+                # target_dir matches but URL is different
+                if repo.url != url:
+                    raise ValueError(
+                        f"Repository with target_dir '{target_dir}' already exists "
+                        f"with different URL (existing: {repo.url}, new: {url})"
+                    )
                 if skip_if_exists:
-                    return False  # Already exists, skip
+                    return False
                 raise ValueError(f"Repository with target_dir '{target_dir}' already exists")
 
         new_repo = Repo(
