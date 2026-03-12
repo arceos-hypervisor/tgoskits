@@ -37,13 +37,6 @@ pub fn init_early() {
 #[cfg(feature = "irq")]
 pub fn init_irq() {
     UART.lock().set_ier(true);
-    axplat_aarch64_peripherals::gic::register_handler(crate::config::devices::UART_IRQ, handle);
-}
-
-/// UART IRQ Handler
-#[allow(dead_code)]
-pub fn handle() {
-    trace!("Uart IRQ Handler");
 }
 
 struct ConsoleIfImpl;
@@ -70,5 +63,13 @@ impl ConsoleIf for ConsoleIfImpl {
             read_len += 1;
         }
         read_len
+    }
+
+    /// Returns the IRQ number for the console input interrupt.
+    ///
+    /// Returns `None` if input interrupt is not supported.
+    #[cfg(feature = "irq")]
+    fn irq_num() -> Option<usize> {
+        Some(crate::config::devices::UART_IRQ)
     }
 }

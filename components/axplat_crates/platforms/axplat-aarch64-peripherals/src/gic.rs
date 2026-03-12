@@ -1,6 +1,6 @@
 //! ARM Generic Interrupt Controller (GIC).
 
-use arm_gic_driver::v2::{Ack, Gic, IntId, SGITarget, TargetList, TrapOp, VirtAddr};
+use arm_gic_driver::v2::{Ack, Gic, IntId, SGITarget, TargetList, TrapOp, Trigger, VirtAddr};
 use axplat::irq::{HandlerTable, IpiTarget, IrqHandler};
 use kspin::SpinNoIrq;
 use lazyinit::LazyInit;
@@ -15,23 +15,27 @@ static TRAP_OP: LazyInit<TrapOp> = LazyInit::new();
 static IRQ_HANDLER_TABLE: HandlerTable<MAX_IRQ_COUNT> = HandlerTable::new();
 
 /// Enables or disables the given IRQ.
-pub fn set_enable(irq_num: usize, enabled: bool) {
-    trace!("GIC set enable: {} {}", irq_num, enabled);
-    let intid = unsafe { IntId::raw(irq_num as u32) };
-    GIC.lock().set_irq_enable(intid, enabled);
+pub fn set_enable(irq: usize, enabled: bool) {
+    trace!("GIC set enable: {irq} {enabled}");
+    let intid = unsafe { IntId::raw(irq as u32) };
+    let gic = GIC.lock();
+    gic.set_irq_enable(intid, enabled);
+    if !intid.is_private() {
+        gic.set_cfg(intid, Trigger::Edge);
+    }
 }
 
 /// Registers an IRQ handler for the given IRQ.
 ///
 /// It also enables the IRQ if the registration succeeds. It returns `false`
 /// if the registration failed.
-pub fn register_handler(irq_num: usize, handler: IrqHandler) -> bool {
-    trace!("register handler IRQ {}", irq_num);
-    if IRQ_HANDLER_TABLE.register_handler(irq_num, handler) {
-        set_enable(irq_num, true);
+pub fn register_handler(irq: usize, handler: IrqHandler) -> bool {
+    if IRQ_HANDLER_TABLE.register_handler(irq, handler) {
+        trace!("register handler IRQ {irq}");
+        set_enable(irq, true);
         return true;
     }
-    warn!("register handler for IRQ {} failed", irq_num);
+    warn!("register handler for IRQ {irq} failed");
     false
 }
 
@@ -39,10 +43,10 @@ pub fn register_handler(irq_num: usize, handler: IrqHandler) -> bool {
 ///
 /// It also disables the IRQ if the unregistration succeeds. It returns the
 /// existing handler if it is registered, `None` otherwise.
-pub fn unregister_handler(irq_num: usize) -> Option<IrqHandler> {
-    trace!("unregister handler IRQ {}", irq_num);
-    set_enable(irq_num, false);
-    IRQ_HANDLER_TABLE.unregister_handler(irq_num)
+pub fn unregister_handler(irq: usize) -> Option<IrqHandler> {
+    trace!("unregister handler IRQ {irq}");
+    set_enable(irq, false);
+    IRQ_HANDLER_TABLE.unregister_handler(irq)
 }
 
 /// Handles the IRQ.
@@ -50,23 +54,31 @@ pub fn unregister_handler(irq_num: usize) -> Option<IrqHandler> {
 /// It is called by the common interrupt handler. It should look up in the
 /// IRQ handler table and calls the corresponding handler. If necessary, it
 /// also acknowledges the interrupt controller after handling.
-pub fn handle_irq(_unused: usize) {
+pub fn handle_irq(_irq: usize) -> Option<usize> {
     let ack = TRAP_OP.ack();
-    debug!("Handling IRQ: {ack:?}");
 
-    let irq_num = match ack {
+    if ack.is_special() {
+        return None;
+    }
+
+    let irq = match ack {
         Ack::Other(intid) => intid,
         Ack::SGI { intid, cpu_id: _ } => intid,
-    };
-    if !IRQ_HANDLER_TABLE.handle(irq_num.to_u32() as _) {
-        warn!("Unhandled IRQ {:?}", irq_num);
     }
-    if !ack.is_special() {
-        TRAP_OP.eoi(ack);
-        if TRAP_OP.eoi_mode_ns() {
-            TRAP_OP.dir(ack);
-        }
+    .to_u32() as usize;
+
+    trace!("IRQ: {ack:?}");
+
+    if !IRQ_HANDLER_TABLE.handle(irq) {
+        debug!("Unhandled IRQ {ack:?}");
     }
+
+    TRAP_OP.eoi(ack);
+    if TRAP_OP.eoi_mode_ns() {
+        TRAP_OP.dir(ack);
+    }
+
+    Some(irq)
 }
 
 /// Initializes GIC
@@ -151,7 +163,7 @@ macro_rules! irq_if_impl {
             /// It is called by the common interrupt handler. It should look up in the
             /// IRQ handler table and calls the corresponding handler. If necessary, it
             /// also acknowledges the interrupt controller after handling.
-            fn handle(irq: usize) {
+            fn handle(irq: usize) -> Option<usize> {
                 $crate::gic::handle_irq(irq)
             }
 

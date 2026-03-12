@@ -12,25 +12,32 @@ package = "axplat-loongarch64-qemu-virt"        # str
 # Maximum number of CPUs. For platforms that do not support runtime CPU number
 # detection, it's also the number of CPUs to boot.
 max-cpu-num = 1                       # uint
-# Base address of the whole physical memory.
-phys-memory-base = 0x8000_0000        # uint
+# Base address of the low physical memory.
+low-memory-base = 0x0                   # uint
+# Size of the low physical memory. (256M)
+low-memory-size = 0x1000_0000           # uint
+# Base address of the high physical memory.
+high-memory-base = 0x8000_0000          # uint
 # Size of the whole physical memory. (128M)
-phys-memory-size = 0x800_0000         # uint
-# Base physical address of the kernel image.
-kernel-base-paddr = 0x8000_0000       # uint
+phys-memory-size = 0x800_0000           # uint
 
-# Base virtual address of the kernel image.
-kernel-base-vaddr = "0xffff_0000_8000_0000"     # uint
+# Linear mapping offset at boot time.
+phys-boot-offset = "0x9000_0000_0000_0000"      # uint
 # Linear mapping offset, for quick conversions between physical and virtual
 # addresses.
-phys-virt-offset = "0xffff_0000_0000_0000"      # uint
+phys-virt-offset = "0xffff_8000_0000_0000"      # uint
 # Offset of bus address and phys address. some boards, the bus address is
 # different from the physical address.
 phys-bus-offset = 0                             # uint
+
+# Base physical address of the kernel image.
+kernel-base-paddr = 0x0020_0000                 # uint
+# Base virtual address of the kernel image.
+kernel-base-vaddr = "0xffff_8000_0020_0000"     # uint
 # Kernel address space base.
-kernel-aspace-base = "0xffff_0000_0000_0000"    # uint
+kernel-aspace-base = "0xffff_8000_0000_0000"    # uint
 # Kernel address space size.
-kernel-aspace-size = "0x0000_ffff_ffff_f000"    # uint
+kernel-aspace-size = "0x0000_7fff_ffff_f000"    # uint
 # Stack size on bootstrapping. (256K)
 boot-stack-size = 0x40000                       # uint
 
@@ -40,6 +47,7 @@ boot-stack-size = 0x40000                       # uint
 [devices]
 # MMIO ranges with format (`base_paddr`, `size`).
 mmio-ranges = [
+    [0x1000_0000, 0x0000_0400],         # PIC
     [0x100D_0000, 0x0000_1000],         # RTC
     [0x100E_0000, 0x0000_1000],         # GED
     [0x1FE0_0000, 0x0000_1000],         # UART
@@ -77,6 +85,7 @@ ged-paddr  = 0x100E001C                 # uint
 #     compatible = "ns16550a";
 # };
 uart-paddr = 0x1FE001E0                 # uint
+uart-irq = 0x2                            # uint
 
 # Timer interrupt frequency in Hz.
 timer-frequency = 100_000_000           # uint
@@ -87,3 +96,26 @@ ipi-irq = 12                            # uint
 
 # RTC (ls7a) Address
 rtc-paddr = 0x100d_0100                 # uint
+
+# eiointc@1400 {
+#     reg = <0x00 0x1400 0x00 0x800>;
+#     interrupts = <0x03>;
+#     interrupt-parent = <0x8001>;
+#     #interrupt-cells = <0x01>;
+#     interrupt-controller;
+#     compatible = "loongson,ls2k2000-eiointc";
+#     phandle = <0x8002>;
+# };
+eiointc-paddr = 0x1400                  # uint
+eiointc-irq = 0x03                      # uint
+
+# platic@10000000 {
+#     loongson,pic-base-vec = <0x00>;
+#     interrupt-parent = <0x8002>;
+#     #interrupt-cells = <0x02>;
+#     interrupt-controller;
+#     reg = <0x00 0x10000000 0x00 0x400>;
+#     compatible = "loongson,pch-pic-1.0";
+#     phandle = <0x8003>;
+# };
+pch-pic-paddr = 0x10000000              # uint

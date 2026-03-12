@@ -52,24 +52,17 @@ pub fn read_bytes(bytes: &mut [u8]) -> usize {
 
 /// Early stage initialization of the PL011 UART driver.
 pub fn init_early(uart_base: VirtAddr) {
-    UART.init_once(SpinNoIrq::new(Pl011Uart::new(uart_base.as_mut_ptr())));
-    UART.lock().init();
-}
-
-/// UART IRQ Handler
-pub fn irq_handler() {
-    let is_receive_interrupt = UART.lock().is_receive_interrupt();
-    UART.lock().ack_interrupts();
-    if is_receive_interrupt {
-        while let Some(c) = getchar() {
-            putchar(c);
-        }
-    }
+    UART.init_once(SpinNoIrq::new({
+        let mut uart = Pl011Uart::new(uart_base.as_mut_ptr());
+        uart.init();
+        uart
+    }));
 }
 
 /// Default implementation of [`axplat::console::ConsoleIf`] using the
 /// PL011 UART.
 #[macro_export]
+#[allow(clippy::crate_in_macro_def)]
 macro_rules! console_if_impl {
     ($name:ident) => {
         struct $name;
@@ -86,6 +79,14 @@ macro_rules! console_if_impl {
             /// Returns the number of bytes read.
             fn read_bytes(bytes: &mut [u8]) -> usize {
                 $crate::pl011::read_bytes(bytes)
+            }
+
+            /// Returns the IRQ number for the console input interrupt.
+            ///
+            /// Returns `None` if input interrupt is not supported.
+            #[cfg(feature = "irq")]
+            fn irq_num() -> Option<usize> {
+                Some(crate::config::devices::UART_IRQ as _)
             }
         }
     };
