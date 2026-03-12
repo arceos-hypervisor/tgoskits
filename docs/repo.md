@@ -1,31 +1,402 @@
-# Git Subtree 组件双向同步方案
+# TGOSKits 仓库管理指南
 
-本文档详细描述如何实现主仓库和组件仓库之间的双向自动同步。
+本文档介绍 TGOSKits 主仓库的架构设计、组件管理机制以及基于 Git Subtree 的双向同步方案。
 
 ## 目录
 
-- [方案概述](#方案概述)
-- [架构设计](#架构设计)
-- [工具脚本](#工具脚本)
-- [快速开始](#快速开始)
-- [详细配置](#详细配置)
-- [使用指南](#使用指南)
-- [工作流程](#工作流程)
-- [故障排查](#故障排查)
-- [最佳实践](#最佳实践)
+- [仓库概述](#仓库概述)
+  - [项目简介](#项目简介)
+  - [仓库结构](#仓库结构)
+  - [核心特性](#核心特性)
+- [Git Subtree 基础](#git-subtree-基础)
+  - [什么是 Git Subtree](#什么是-git-subtree)
+  - [为什么选择 Subtree](#为什么选择-subtree)
+  - [基本概念](#基本概念)
+- [组件管理](#组件管理)
+  - [组件列表](#组件列表)
+  - [组件结构](#组件结构)
+  - [组件生命周期](#组件生命周期)
+- [同步方案](#同步方案)
+  - [方案概述](#方案概述-1)
+  - [架构设计](#架构设计)
+  - [工具脚本](#工具脚本)
+  - [快速开始](#快速开始)
+  - [详细配置](#详细配置)
+  - [使用指南](#使用指南)
+  - [工作流程](#工作流程)
+  - [故障排查](#故障排查)
+  - [最佳实践](#最佳实践)
 
 ---
 
-## 方案概述
+## 仓库概述
 
-### 同步方向
+### 项目简介
+
+TGOSKits 是一个面向操作系统开发工具包的集成仓库，通过 Git Subtree 技术将多个独立的组件仓库整合到一个统一的主仓库中，同时保留每个组件的完整开发历史。
+
+**主要目标**：
+- 🎯 **统一管理**：在单一仓库中管理所有操作系统相关组件
+- 📜 **保留历史**：完整保留每个组件的独立开发历史和提交记录
+- 🔄 **双向同步**：支持主仓库和组件仓库之间的双向代码同步
+- 🚀 **独立开发**：组件可以独立开发、测试和发布
+- 🤝 **协作友好**：支持多人协作和自动化工作流
+
+### 仓库结构
+
+```
+tgoskits/                              # 主仓库根目录
+├── components/                        # 组件目录（可复用的库和模块）
+│   ├── arm_vcpu/                     # ARM 虚拟 CPU 支持
+│   ├── arm_vgic/                     # ARM 虚拟 GIC 控制器
+│   ├── axvm/                         # 虚拟机抽象层
+│   ├── axvisor/                      # Hypervisor 核心
+│   ├── axaddrspace/                  # 地址空间管理
+│   ├── axdevice/                     # 设备抽象层
+│   └── ... (更多组件)
+│
+├── os/                               # 操作系统项目
+│   ├── arceos/                       # ArceOS 系统
+│   ├── axvisor/                      # Axvisor Hypervisor
+│   └── StarryOS/                     # StarryOS
+│
+├── scripts/                          # 管理脚本
+│   ├── repos.list                    # 组件仓库配置
+│   ├── push.sh                       # 推送脚本
+│   ├── pull.sh                       # 拉取脚本
+│   ├── check.sh                      # 检查脚本
+│   └── repos.sh                      # 仓库管理脚本
+│
+├── docs/                             # 文档目录
+│   └── repo.md                       # 本文档
+│
+└── .github/workflows/                # GitHub Actions
+    ├── pull.yml                      # 自动拉取工作流
+    └── push.yml                      # 自动推送工作流
+```
+
+**目录说明**：
+- **`components/`**：存放可复用的组件和库，每个组件都有独立的 Git 仓库
+- **`os/`**：完整的操作系统项目，也是通过 Subtree 管理
+- **`scripts/`**：自动化管理工具，用于组件的推送、拉取和检查
+- **`docs/`**：项目文档和使用说明
+
+### 核心特性
+
+#### 1. 历史保留
+
+使用 Git Subtree 而非 Git Submodule 的关键优势是**完整保留组件的提交历史**：
+
+```bash
+# 查看组件的完整历史（包括合并前的提交）
+git log --follow -- components/arm_vcpu/src/lib.rs
+
+# 查看组件的 subtree 合并历史
+git log --oneline --grep="subtree" --grep="arm_vcpu"
+```
+
+#### 2. 独立开发
+
+每个组件都可以在独立仓库中进行开发和维护：
+
+- 组件仓库：`https://github.com/arceos-hypervisor/arm_vcpu`
+- 可以独立提交、测试、发布
+- 有独立的 Issue 追踪和 Pull Request 流程
+
+#### 3. 双向同步
+
+支持两种同步方向：
+
+```
+主仓库 (tgoskits)  ←──────→  组件仓库 (arm_vcpu)
+     │                                │
+     ├─ scripts/push.sh ─────────────→ 推送修改
+     │                                │
+     └─ scripts/pull.sh ←───────────── 拉取更新
+```
+
+#### 4. 自动化工作流
+
+通过 GitHub Actions 实现自动化同步：
+
+- 组件仓库推送 → 自动触发主仓库拉取
+- 主仓库修改 → 手动或自动推送到组件仓库
+- 支持批量操作和定时检查
+
+---
+
+## Git Subtree 基础
+
+### 什么是 Git Subtree
+
+Git Subtree 是一种将外部仓库合并到主仓库子目录的方法，它允许你：
+
+1. **嵌套仓库**：将其他仓库作为子目录嵌入到主仓库中
+2. **保留历史**：完整保留子仓库的所有提交历史
+3. **双向同步**：支持在主仓库和子仓库之间双向推送和拉取
+4. **无额外依赖**：不需要 `.gitmodules` 文件，克隆时无需特殊操作
+
+**与 Git Submodule 的对比**：
+
+| 特性 | Git Subtree | Git Submodule |
+|------|-------------|---------------|
+| 历史保留 | ✅ 完整保留 | ❌ 只保留引用 |
+| 克隆复杂度 | ✅ 简单（普通克隆） | ❌ 需要 `--recursive` |
+| 二进制大小 | ❌ 较大（包含完整历史） | ✅ 较小（仅引用） |
+| 操作复杂度 | ❌ 较复杂 | ✅ 简单 |
+| 离线工作 | ✅ 支持 | ❌ 需要网络 |
+
+### 为什么选择 Subtree
+
+TGOSKits 选择 Git Subtree 的原因：
+
+1. **保留开发历史**
+   - 可以追溯组件在独立仓库中的完整开发历程
+   - 方便代码审查和历史查询
+   - 支持跨仓库的 blame 和 log
+
+2. **简化协作**
+   - 开发者克隆主仓库即可获得所有代码
+   - 无需额外的初始化步骤
+   - 离线也能查看和修改组件代码
+
+3. **统一管理**
+   - 在主仓库中统一管理所有组件的版本
+   - 方便进行跨组件的重构和优化
+   - 统一的 CI/CD 流程
+
+4. **灵活发布**
+   - 组件可以独立发布到 crates.io
+   - 主仓库可以作为一个整体发布
+   - 支持不同的发布策略
+
+### 基本概念
+
+#### 1. Subtree 添加
+
+将外部仓库添加为主仓库的子目录：
+
+```bash
+# 语法
+git subtree add --prefix=<目录> <远程仓库> <分支> --squash
+
+# 示例
+git subtree add --prefix=components/arm_vcpu https://github.com/arceos-hypervisor/arm_vcpu main --squash
+```
+
+**参数说明**：
+- `--prefix`：指定子目录路径
+- `--squash`：将外部仓库的历史压缩为一个提交（可选）
+- 不使用 `--squash`：保留完整的提交历史
+
+#### 2. Subtree 拉取
+
+从外部仓库拉取最新更新：
+
+```bash
+# 语法
+git subtree pull --prefix=<目录> <远程仓库> <分支>
+
+# 示例
+git subtree pull --prefix=components/arm_vcpu https://github.com/arceos-hypervisor/arm_vcpu main
+```
+
+**注意**：
+- 需要先提交或暂存当前的修改
+- 如果有冲突需要手动解决
+- 建议使用 `-m` 参数指定合并提交信息
+
+#### 3. Subtree 推送
+
+将主仓库中的修改推送到外部仓库：
+
+```bash
+# 语法
+git subtree push --prefix=<目录> <远程仓库> <分支>
+
+# 示例
+git subtree push --prefix=components/arm_vcpu https://github.com/arceos-hypervisor/arm_vcpu main
+```
+
+**注意**：
+- 会提取主仓库中对该子目录的所有修改
+- 生成新的提交并推送到外部仓库
+- 如果远程有新提交，需要先拉取再推送
+
+#### 4. Remote 管理
+
+为了简化操作，通常先添加远程仓库：
+
+```bash
+# 添加远程仓库
+git remote add components/arm_vcpu https://github.com/arceos-hypervisor/arm_vcpu
+
+# 使用简化的命令
+git subtree pull --prefix=components/arm_vcpu components/arm_vcpu main
+git subtree push --prefix=components/arm_vcpu components/arm_vcpu main
+```
+
+---
+
+## 组件管理
+
+### 组件列表
+
+当前仓库管理的所有组件定义在 [scripts/repos.list](../scripts/repos.list) 文件中。
+
+**组件分类**：
+
+#### Hypervisor 核心组件（arceos-hypervisor 组织）
+
+| 组件 | 描述 | 仓库 |
+|------|------|------|
+| `arm_vcpu` | ARM 虚拟 CPU 支持 | [arceos-hypervisor/arm_vcpu](https://github.com/arceos-hypervisor/arm_vcpu) |
+| `arm_vgic` | ARM 虚拟 GIC 控制器 | [arceos-hypervisor/arm_vgic](https://github.com/arceos-hypervisor/arm_vgic) |
+| `axvm` | 虚拟机抽象层 | [arceos-hypervisor/axvm](https://github.com/arceos-hypervisor/axvm) |
+| `axvisor` | Hypervisor 核心框架 | [arceos-hypervisor/axvisor](https://github.com/arceos-hypervisor/axvisor) |
+| `axaddrspace` | 地址空间管理 | [arceos-hypervisor/axaddrspace](https://github.com/arceos-hypervisor/axaddrspace) |
+| `axdevice` | 设备抽象层 | [arceos-hypervisor/axdevice](https://github.com/arceos-hypervisor/axdevice) |
+
+#### ArceOS 框架组件（arceos-org 组织）
+
+| 组件 | 描述 | 仓库 |
+|------|------|------|
+| `arceos` | ArceOS 操作系统 | [arceos-org/arceos](https://github.com/arceos-org/arceos) |
+| `axcpu` | CPU 抽象层 | [arceos-org/axcpu](https://github.com/arceos-org/axcpu) |
+| `axsched` | 调度器框架 | [arceos-org/axsched](https://github.com/arceos-org/axsched) |
+| `axconfig-gen` | 配置生成工具 | [arceos-org/axconfig-gen](https://github.com/arceos-org/axconfig-gen) |
+
+完整列表请查看 [scripts/repos.list](../scripts/repos.list) 文件。
+
+### 组件结构
+
+每个组件都遵循标准的 Rust 项目结构：
+
+```
+components/arm_vcpu/
+├── Cargo.toml           # 项目配置和依赖
+├── README.md            # 组件说明文档
+├── LICENSE              # 许可证文件
+├── CHANGELOG.md         # 变更日志（可选）
+├── rust-toolchain.toml  # Rust 工具链配置（可选）
+├── src/                 # 源代码目录
+│   ├── lib.rs          # 库入口
+│   └── ...
+└── tests/               # 测试代码（可选）
+```
+
+**组件要求**：
+- ✅ 必须包含 `Cargo.toml` 和 `README.md`
+- ✅ 建议包含 `LICENSE` 文件
+- ✅ 建议维护 `CHANGELOG.md`
+- ✅ 代码风格符合 Rust 规范
+
+### 组件生命周期
+
+#### 1. 添加新组件
+
+**步骤 1：更新配置文件**
+
+在 [scripts/repos.list](../scripts/repos.list) 中添加新组件：
+
+```bash
+# 格式：<仓库URL>|<分支>|<本地目录>
+https://github.com/your-org/new-component|main|components/new-component
+```
+
+**步骤 2：添加 Subtree**
+
+```bash
+# 添加远程仓库
+git remote add components/new-component https://github.com/your-org/new-component
+
+# 添加 subtree（保留完整历史）
+git subtree add --prefix=components/new-component components/new-component main
+
+# 或使用脚本
+scripts/repos.sh -a new-component
+```
+
+**步骤 3：验证**
+
+```bash
+# 检查组件是否正确添加
+scripts/check.sh new-component
+
+# 查看提交历史
+git log --oneline components/new-component/
+```
+
+#### 2. 更新组件
+
+**手动更新**：
+
+```bash
+# 拉取指定组件的更新
+scripts/pull.sh -c new-component -b main
+
+# 或使用 git subtree 命令
+git subtree pull --prefix=components/new-component components/new-component main
+```
+
+**自动更新**：
+
+配置组件仓库的 GitHub Actions，推送时自动通知主仓库拉取更新（详见[同步方案](#同步方案)章节）。
+
+#### 3. 移除组件
+
+**警告**：移除组件会删除本地目录和相关配置，操作需谨慎！
+
+```bash
+# 1. 删除组件目录
+rm -rf components/new-component
+git add components/new-component
+git commit -m "chore: remove new-component"
+
+# 2. 移除远程仓库
+git remote remove components/new-component
+
+# 3. 更新配置文件
+# 从 scripts/repos.list 中删除对应行
+```
+
+#### 4. 组件分支管理
+
+每个组件可以跟踪不同的分支：
+
+```bash
+# 查看组件当前使用的分支
+git remote show components/arm_vcpu | grep "tracked"
+
+# 切换组件分支
+scripts/pull.sh -c arm_vcpu -b dev
+
+# 推送到特定分支
+scripts/push.sh -c arm_vcpu -b dev
+```
+
+**分支策略建议**：
+- `main`：稳定版本，用于生产环境
+- `dev`：开发版本，包含最新特性
+- `feature/*`：功能分支，用于开发新特性
+- `release/*`：发布分支，用于版本准备
+
+---
+
+## 同步方案
+
+本章节详细介绍主仓库和组件仓库之间的双向自动同步机制。
+
+### 方案概述
+
+#### 同步方向
 
 我们提供两种同步方向：
 
 1. **主仓库 → 组件仓库**：使用 `scripts/push.sh` 手动推送更新
 2. **组件仓库 → 主仓库**：使用 GitHub Actions 自动拉取更新
 
-### 核心优势
+#### 核心优势
 
 - ✅ **自动化同步**：组件仓库更新后自动触发主仓库同步
 - ✅ **双向同步**：支持主仓库 ↔ 组件仓库双向更新
@@ -35,9 +406,9 @@
 
 ---
 
-## 架构设计
+### 架构设计
 
-### 同步流程图
+#### 同步流程图
 
 ```
 ┌─────────────────┐                    ┌──────────────────┐
@@ -74,11 +445,11 @@ tgoskits (主仓库)
 
 ---
 
-## 工具脚本
+### 工具脚本
 
-### Shell 脚本（本地操作）
+#### Shell 脚本（本地操作）
 
-#### push.sh - 推送本地修改到组件仓库
+##### push.sh - 推送本地修改到组件仓库
 
 将主仓库中的组件修改推送到各个组件的独立仓库。
 
@@ -110,7 +481,7 @@ scripts/push.sh --dry-run -r arm_vcpu
 - `-a, --all` - 推送所有组件
 - `-d, --dry-run` - 预览模式
 
-#### pull.sh - 从组件仓库拉取更新
+##### pull.sh - 从组件仓库拉取更新
 
 从各个组件的独立仓库拉取更新到主仓库。
 
@@ -134,7 +505,7 @@ scripts/pull.sh --dry-run -a
 - `-a, --all` - 拉取所有组件
 - `-d, --dry-run` - 预览模式
 
-#### 其他辅助脚本
+##### 其他辅助脚本
 
 ```bash
 # 管理组件仓库
@@ -146,9 +517,9 @@ scripts/check.sh all                # 检查所有组件
 scripts/check.sh arm_vcpu           # 检查指定组件
 ```
 
-### GitHub Actions Workflows（CI/CD）
+#### GitHub Actions Workflows（CI/CD）
 
-#### 主仓库：pull.yml
+##### 主仓库：pull.yml
 
 **位置**：`.github/workflows/pull.yml`
 
@@ -158,7 +529,7 @@ scripts/check.sh arm_vcpu           # 检查指定组件
 1. 接收 `repository_dispatch` 事件（组件仓库推送）
 2. 手动触发（workflow_dispatch）
 
-#### 组件仓库：push.yml（模板）
+##### 组件仓库：push.yml（模板）
 
 **位置**：`scripts/push.yml`
 
@@ -168,11 +539,11 @@ scripts/check.sh arm_vcpu           # 检查指定组件
 
 ---
 
-## 快速开始
+### 快速开始
 
-### 1. 配置组件仓库（5 分钟）
+#### 1. 配置组件仓库（5 分钟）
 
-#### 步骤 1：复制 workflow 文件
+##### 步骤 1：复制 workflow 文件
 
 ```bash
 cd arm_vcpu  # 进入组件仓库
@@ -182,7 +553,7 @@ mkdir -p .github/workflows
 cp /path/to/tgoskits/scripts/push.yml .github/workflows/notify-parent.yml
 ```
 
-#### 步骤 2：创建 Personal Access Token
+##### 步骤 2：创建 Personal Access Token
 
 1. 访问 https://github.com/settings/tokens/new
 2. 设置 Token 名称：`tgoskits-subtree-sync`
@@ -192,7 +563,7 @@ cp /path/to/tgoskits/scripts/push.yml .github/workflows/notify-parent.yml
 4. 点击 "Generate token"
 5. **立即复制 Token**（只显示一次）
 
-#### 步骤 3：配置 Secret
+##### 步骤 3：配置 Secret
 
 1. 进入组件仓库的 **Settings** 页面
 2. 左侧菜单选择 **Secrets and variables** → **Actions**
@@ -202,7 +573,7 @@ cp /path/to/tgoskits/scripts/push.yml .github/workflows/notify-parent.yml
    - Value: 粘贴刚才复制的 Token
 5. 点击 **Add secret**
 
-#### 步骤 4：测试配置
+##### 步骤 4：测试配置
 
 ```bash
 # 在组件仓库中推送一个测试提交
@@ -212,14 +583,14 @@ git commit -m "test: notify parent repository"
 git push origin main
 ```
 
-#### 步骤 5：验证
+##### 步骤 5：验证
 
 检查：
 1. 组件仓库的 **Actions** 页面 - 确认 workflow 运行成功
 2. 主仓库的 **Actions** 页面 - 确认收到通知并拉取更新
 3. 主仓库的提交历史 - 应该看到 "Merge subtree arm_vcpu/main"
 
-### 2. 使用主仓库脚本
+#### 2. 使用主仓库脚本
 
 ```bash
 # 在主仓库中修改组件代码
@@ -236,9 +607,9 @@ scripts/push.sh -r arm_vcpu -c "feat: update arm_vcpu"
 
 ---
 
-## 详细配置
+### 详细配置
 
-### 主仓库配置
+#### 主仓库配置
 
 主仓库已经配置好了接收更新的 GitHub Actions workflow。
 
@@ -249,9 +620,9 @@ scripts/push.sh -r arm_vcpu -c "feat: update arm_vcpu"
 - 从 `scripts/repos.list` 读取组件信息
 - 自动执行 `git subtree pull`
 
-### 组件仓库配置
+#### 组件仓库配置
 
-#### GitHub Actions Workflow
+##### GitHub Actions Workflow
 
 在组件仓库中创建文件 `.github/workflows/notify-parent.yml`：
 
@@ -305,7 +676,7 @@ jobs:
             }"
 ```
 
-#### 自定义触发条件
+##### 自定义触发条件
 
 如果只想在特定文件变化时触发，可以修改 `on.push.paths`：
 
@@ -319,7 +690,7 @@ on:
       - 'Cargo.toml'    # 或 Cargo.toml 变化时
 ```
 
-### repos.list 配置
+#### repos.list 配置
 
 **文件位置**：`scripts/repos.list`
 
@@ -338,11 +709,11 @@ https://github.com/arceos-org/arceos|dev|arceos
 
 ---
 
-## 使用指南
+### 使用指南
 
-### 推送操作（主仓库 → 组件仓库）
+#### 推送操作（主仓库 → 组件仓库）
 
-#### 基本使用
+##### 基本使用
 
 ```bash
 # 1. 在主仓库中修改组件代码
@@ -356,7 +727,7 @@ git commit -m "feat: update arm_vcpu"
 scripts/push.sh -r arm_vcpu
 ```
 
-#### 高级用法
+##### 高级用法
 
 ```bash
 # 自动提交并推送（一步完成）
@@ -378,9 +749,9 @@ scripts/push.sh
 scripts/push.sh -a
 ```
 
-### 拉取操作（组件仓库 → 主仓库）
+#### 拉取操作（组件仓库 → 主仓库）
 
-#### 手动拉取
+##### 手动拉取
 
 ```bash
 # 拉取指定组件的更新
@@ -396,7 +767,7 @@ scripts/pull.sh -a
 scripts/pull.sh --dry-run -a
 ```
 
-#### 自动拉取
+##### 自动拉取
 
 组件仓库推送代码后，主仓库会自动拉取更新：
 
@@ -405,7 +776,7 @@ scripts/pull.sh --dry-run -a
 3. 通知主仓库
 4. 主仓库自动执行 `git subtree pull`
 
-### 批量操作
+#### 批量操作
 
 ```bash
 # 批量推送所有修改的组件
@@ -420,9 +791,9 @@ scripts/check.sh all
 
 ---
 
-## 工作流程
+### 工作流程
 
-### 自动同步流程
+#### 自动同步流程
 
 ```
 1. 开发者在组件仓库推送代码
@@ -438,9 +809,9 @@ scripts/check.sh all
 6. 主仓库自动提交并推送更改
 ```
 
-### 手动同步流程
+#### 手动同步流程
 
-#### 推送流程（主仓库 → 组件仓库）
+##### 推送流程（主仓库 → 组件仓库）
 
 ```
 主仓库修改组件代码 
@@ -449,7 +820,7 @@ scripts/check.sh all
   → 组件仓库收到更新
 ```
 
-#### 拉取流程（组件仓库 → 主仓库）
+##### 拉取流程（组件仓库 → 主仓库）
 
 ```
 组件仓库更新
@@ -458,7 +829,7 @@ scripts/check.sh all
   → 主仓库收到更新
 ```
 
-### 冲突处理流程
+#### 冲突处理流程
 
 ```
 1. 拉取时检测到冲突
@@ -476,9 +847,9 @@ scripts/check.sh all
 
 ---
 
-## 故障排查
+### 故障排查
 
-### 推送失败：non-fast-forward
+#### 推送失败：non-fast-forward
 
 **原因**：远程分支有新的提交
 
@@ -521,7 +892,7 @@ git push origin main
 scripts/push.sh -r <component>
 ```
 
-### Token 权限不足
+#### Token 权限不足
 
 **错误信息**：`HTTP 403: Resource not accessible by integration`
 
@@ -530,7 +901,7 @@ scripts/push.sh -r <component>
 2. 检查组件仓库的 Secret 配置是否正确
 3. 确认 Token 未过期
 
-### 组件未找到
+#### 组件未找到
 
 **错误信息**：`Component xxx not found in repos.list`
 
@@ -539,7 +910,7 @@ scripts/push.sh -r <component>
 2. 确认组件配置格式正确
 3. 检查组件目录名是否匹配
 
-### GitHub Actions 失败
+#### GitHub Actions 失败
 
 **可能原因**：
 1. Token 权限不足
@@ -554,9 +925,9 @@ scripts/push.sh -r <component>
 
 ---
 
-## 最佳实践
+### 最佳实践
 
-### 推送前检查
+#### 推送前检查
 
 1. **确保修改已提交**
    ```bash
@@ -575,7 +946,7 @@ scripts/push.sh -r <component>
    scripts/check.sh <component>
    ```
 
-### 强制推送使用场景
+#### 强制推送使用场景
 
 **适合使用 `--force`**：
 - 确认远程提交可以被覆盖
@@ -587,7 +958,7 @@ scripts/push.sh -r <component>
 - 重要的历史提交
 - 不确定远程状态时
 
-### 分支管理建议
+#### 分支管理建议
 
 1. **开发分支**：使用 `dev` 分支进行开发
 2. **主分支**：`main` 分支保持稳定
@@ -601,7 +972,7 @@ scripts/push.sh -r arm_vcpu -b dev
 scripts/push.sh -r arm_vcpu -b main
 ```
 
-### 定期维护
+#### 定期维护
 
 ```bash
 # 定期检查所有组件状态
@@ -614,7 +985,7 @@ scripts/pull.sh -a
 git remote prune origin
 ```
 
-### Token 管理
+#### Token 管理
 
 1. **定期更新 Token**：建议每 3-6 个月更新一次
 2. **最小权限原则**：只给予必要的权限
@@ -623,9 +994,9 @@ git remote prune origin
 
 ---
 
-## 附录
+### 附录
 
-### 组件仓库列表
+#### 组件仓库列表
 
 当前配置的组件仓库：
 
@@ -634,7 +1005,7 @@ git remote prune origin
 
 完整列表见主仓库的 `scripts/repos.list` 文件。
 
-### 相关文件
+#### 相关文件
 
 - `scripts/push.sh` - 推送脚本
 - `scripts/pull.sh` - 拉取脚本
@@ -644,7 +1015,7 @@ git remote prune origin
 - `.github/workflows/pull.yml` - 主仓库 workflow
 - `scripts/repos.list` - 组件配置列表
 
-### 参考资料
+#### 参考资料
 
 - [Git Subtree 文档](https://git-scm.com/book/en/v2/Git-Tools-Advanced-Merging#_subtree_merge)
 - [GitHub Actions 文档](https://docs.github.com/en/actions)
@@ -652,7 +1023,7 @@ git remote prune origin
 
 ---
 
-## 获取帮助
+### 获取帮助
 
 如果遇到问题，请：
 
