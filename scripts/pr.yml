@@ -1,0 +1,275 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# 组件仓库 PR 转发到主仓库
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# 当子仓库收到 PR 时，直接在主仓库创建对应的 PR。
+#
+# 【同步策略：替换式同步】
+# ─────────────────────────────────────────────────────────────────────────────
+# 不使用 git merge/subtree pull（可能产生冲突），而是：
+#   1. 删除主仓库中的 subtree 目录
+#   2. 用子仓库 PR 的完整内容替换
+#   3. 提交变更并创建 PR
+#   4. 等待人工审核后合并
+#
+# 这种方式假设 subtree 目录完全由子仓库控制，主仓库不应有本地修改。
+#
+# 【使用步骤】
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. 将此文件复制到子仓库的 .github/workflows/ 目录
+#
+# 2. 在子仓库中配置 Secret：
+#    名称: PARENT_REPO_TOKEN
+#    值: 具有主仓库 repo 权限的 Personal Access Token
+#
+# 3. 修改下方 env 块中的变量
+#
+# 【Token 权限要求】
+# ─────────────────────────────────────────────────────────────────────────────
+# PARENT_REPO_TOKEN: repo (需要在主仓库创建分支和 PR)
+#
+# 【触发条件】
+# ─────────────────────────────────────────────────────────────────────────────
+# - PR 打开、同步（新提交）、重新打开时触发
+# - 手动触发
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: Forward PR to Parent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to forward'
+        required: true
+        type: number
+
+env:
+  # ── 需要修改 ──────────────────────────────────────────────────────────────
+  PARENT_REPO: "rcore-os/tgoskits"           # 主仓库路径
+  SUBTREE_PATH: "components/REPLACE_ME"      # 组件在主仓库中的路径
+  # ── 无需修改 ──────────────────────────────────────────────────────────────
+  PARENT_BRANCH: "dev"                       # 主仓库目标分支
+
+jobs:
+  forward-pr:
+    runs-on: ubuntu-latest
+    # 只处理针对 dev 或 main 分支的 PR，或者是手动触发
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.base.ref == 'dev' ||
+      github.event.pull_request.base.ref == 'main'
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # 手动触发时检出默认分支，后续会通过 API 获取正确的 PR 信息
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Extract PR information
+        id: pr-info
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HTML_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # 如果是手动触发，通过 API 获取 PR 信息
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PR_DATA=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/pulls/${PR_NUMBER}")
+            PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
+            PR_BODY=$(echo "$PR_DATA" | jq -r '.body // ""')
+            PR_HEAD_SHA=$(echo "$PR_DATA" | jq -r '.head.sha')
+            PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.user.login')
+            PR_HTML_URL=$(echo "$PR_DATA" | jq -r '.html_url')
+          fi
+
+          COMPONENT_NAME="${{ github.event.repository.name }}"
+          PARENT_BRANCH_NAME="pr-${COMPONENT_NAME}-${PR_NUMBER}"
+
+          echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+          echo "pr_title=${PR_TITLE}" >> $GITHUB_OUTPUT
+          echo "pr_body<<'EOF'" >> $GITHUB_OUTPUT
+          echo "${PR_BODY}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "pr_head_sha=${PR_HEAD_SHA}" >> $GITHUB_OUTPUT
+          echo "pr_author=${PR_AUTHOR}" >> $GITHUB_OUTPUT
+          echo "pr_html_url=${PR_HTML_URL}" >> $GITHUB_OUTPUT
+          echo "parent_branch_name=${PARENT_BRANCH_NAME}" >> $GITHUB_OUTPUT
+          echo "component_name=${COMPONENT_NAME}" >> $GITHUB_OUTPUT
+
+          echo "=== PR Info ==="
+          echo "Number: ${PR_NUMBER}"
+          echo "Title: ${PR_TITLE}"
+          echo "Author: ${PR_AUTHOR}"
+
+      - name: Fetch PR head (for manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          # 手动触发时需要 fetch 正确的 PR head
+          PR_HEAD_SHA="${{ steps.pr-info.outputs.pr_head_sha }}"
+          git fetch origin "${PR_HEAD_SHA}"
+          git checkout "${PR_HEAD_SHA}"
+
+      - name: Checkout parent repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PARENT_REPO }}
+          token: ${{ secrets.PARENT_REPO_TOKEN }}
+          fetch-depth: 0
+          path: parent-repo
+          ref: ${{ env.PARENT_BRANCH }}
+
+      - name: Sync PR content to parent (replace strategy)
+        id: sync
+        working-directory: parent-repo
+        env:
+          SUBTREE_PATH: ${{ env.SUBTREE_PATH }}
+          PARENT_BRANCH_NAME: ${{ steps.pr-info.outputs.parent_branch_name }}
+          COMPONENT_NAME: ${{ steps.pr-info.outputs.component_name }}
+          PR_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+          SUBREPO_PATH: ${{ github.workspace }}
+        run: |
+          # 检查 subtree 路径
+          if [ ! -d "${SUBTREE_PATH}" ]; then
+            echo "::error::Subtree path not found: ${SUBTREE_PATH}"
+            exit 1
+          fi
+
+          # 删除旧的远程分支
+          git push origin --delete "${PARENT_BRANCH_NAME}" 2>/dev/null || true
+
+          # 创建新分支
+          git checkout -b "${PARENT_BRANCH_NAME}"
+
+          echo "=== Replace Strategy ==="
+          echo "Removing: ${SUBTREE_PATH}"
+
+          # 删除旧内容
+          rm -rf "${SUBTREE_PATH}"/*
+          rm -rf "${SUBTREE_PATH}/.[!.]"* 2>/dev/null || true
+
+          # 复制 PR 内容到 subtree 目录
+          # SUBREPO_PATH 是子仓库的路径（父目录中的子仓库 checkout）
+          echo "Copying from subrepo: ${SUBREPO_PATH}"
+          cp -r "${SUBREPO_PATH}/." "${SUBTREE_PATH}/"
+
+          # 清理不需要的文件
+          rm -rf "${SUBTREE_PATH}/.git"
+          rm -rf "${SUBTREE_PATH}/.github"
+
+          echo "Changes:"
+          git status
+          git diff --stat HEAD
+
+          # 检查是否有变更
+          if git diff --quiet HEAD; then
+            echo "::warning::No changes detected"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            git add -A
+            git commit -m "sync(${COMPONENT_NAME}): update from PR #${PR_NUMBER}"
+            git push origin "${PARENT_BRANCH_NAME}"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "✅ Synced and pushed to ${PARENT_BRANCH_NAME}"
+          fi
+
+      - name: Create or update PR in parent
+        if: steps.sync.outputs.has_changes == 'true'
+        id: create-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.PARENT_REPO_TOKEN }}
+          PARENT_REPO: ${{ env.PARENT_REPO }}
+          PARENT_BRANCH: ${{ env.PARENT_BRANCH }}
+          PARENT_BRANCH_NAME: ${{ steps.pr-info.outputs.parent_branch_name }}
+          COMPONENT_NAME: ${{ steps.pr-info.outputs.component_name }}
+          PR_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+          PR_TITLE: ${{ steps.pr-info.outputs.pr_title }}
+          PR_BODY: ${{ steps.pr-info.outputs.pr_body }}
+          PR_AUTHOR: ${{ steps.pr-info.outputs.pr_author }}
+          PR_HTML_URL: ${{ steps.pr-info.outputs.pr_html_url }}
+          SOURCE_REPO: ${{ github.repository }}
+        run: |
+          PR_TITLE_NEW="[${COMPONENT_NAME}] ${PR_TITLE}"
+          
+          # 使用 heredoc 构建多行 PR 描述
+          PR_BODY_NEW=$(cat << HEREDOC
+          ## 🔄 子仓库 PR 同步
+
+          此 PR 由子仓库 PR 自动生成，**需要人工审核后才能合并**。
+
+          | 项目 | 值 |
+          |------|-----|
+          | 源仓库 | [\`${SOURCE_REPO}\`](https://github.com/${SOURCE_REPO}) |
+          | PR | [#${PR_NUMBER}](${PR_HTML_URL}) |
+          | 作者 | @${PR_AUTHOR} |
+
+          ---
+
+          ${PR_BODY}
+          HEREDOC
+          )
+
+          # 查找现有 PR
+          EXISTING_PR=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${PARENT_REPO}/pulls?head=${PARENT_REPO%/*}:${PARENT_BRANCH_NAME}&state=open" \
+            | jq -r '.[0].number // empty')
+
+          if [ -n "$EXISTING_PR" ]; then
+            curl -s -X PATCH \
+              -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${PARENT_REPO}/pulls/${EXISTING_PR}" \
+              -d "$(jq -n --arg title "$PR_TITLE_NEW" --arg body "$PR_BODY_NEW" '{title: $title, body: $body}')"
+            PR_URL="https://github.com/${PARENT_REPO}/pull/${EXISTING_PR}"
+            echo "pr_action=updated" >> $GITHUB_OUTPUT
+            echo "✅ Updated PR: ${PR_URL}"
+          else
+            RESPONSE=$(curl -s -X POST \
+              -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${PARENT_REPO}/pulls" \
+              -d "$(jq -n --arg title "$PR_TITLE_NEW" --arg body "$PR_BODY_NEW" \
+                --arg head "$PARENT_BRANCH_NAME" --arg base "$PARENT_BRANCH" \
+                '{title: $title, body: $body, head: $head, base: $base}')")
+            PR_NUMBER_NEW=$(echo "$RESPONSE" | jq -r '.number')
+            PR_URL="https://github.com/${PARENT_REPO}/pull/${PR_NUMBER_NEW}"
+            echo "pr_action=created" >> $GITHUB_OUTPUT
+            echo "✅ Created PR: ${PR_URL}"
+          fi
+
+          echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+
+      - name: Summary
+        run: |
+          echo "## PR Forward Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Source" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repo**: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR**: [#${{ steps.pr-info.outputs.pr_number }}](${{ steps.pr-info.outputs.pr_html_url }})" >> $GITHUB_STEP_SUMMARY
+          echo "- **Author**: @${{ steps.pr-info.outputs.pr_author }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Result" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.sync.outputs.has_changes }}" = "true" ]; then
+            echo "- **Action**: ${{ steps.create-pr.outputs.pr_action }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **PR**: ${{ steps.create-pr.outputs.pr_url }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ PR ready for review" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **需要人工审核后才能合并**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- No changes to sync" >> $GITHUB_STEP_SUMMARY
+          fi
