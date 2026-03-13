@@ -565,6 +565,76 @@ def cmd_branch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_init(args: argparse.Namespace) -> int:
+    """Handle the 'init' command - add subtrees from a CSV file (repos.sh equivalent)."""
+    import_csv_path = args.file
+    
+    if not import_csv_path.exists():
+        print(f"Error: CSV file '{import_csv_path}' not found", file=sys.stderr)
+        return 1
+    
+    # Load repositories from the import file
+    import_manager = CSVManager(import_csv_path)
+    import_repos = import_manager.load_repos()
+    
+    if not import_repos:
+        print("No repositories found in the import CSV file")
+        return 0
+    
+    # Git subtree manager (we don't need CSV manager for this operation)
+    csv_manager = CSVManager(args.csv)
+    git_manager = GitSubtreeManager(csv_manager)
+    
+    # Track statistics
+    added_count = 0
+    skipped_count = 0
+    error_count = 0
+    
+    print(f"Found {len(import_repos)} repositories in {import_csv_path}")
+    print("=" * 80)
+    
+    for repo in import_repos:
+        repo_name = repo.repo_name
+        target_dir = repo.target_dir
+        branch = repo.branch if repo.branch else ""
+        
+        print(f"\nProcessing: {repo_name}")
+        print(f"  URL: {repo.url}")
+        print(f"  Target: {target_dir}")
+        print(f"  Branch: {branch if branch else 'auto-detect'}")
+        
+        if not target_dir:
+            print(f"  ⚠ Skipped: No target_dir specified")
+            skipped_count += 1
+            continue
+        
+        # Check if target directory already exists (like repos.sh does)
+        if git_manager.is_added(target_dir):
+            print(f"  ⚠ Skipped: Directory '{target_dir}' already exists")
+            skipped_count += 1
+            continue
+        
+        # Add git subtree directly (preserving history)
+        try:
+            git_manager.add_subtree(repo.url, target_dir, branch)
+            print(f"  ✓ Successfully added subtree")
+            added_count += 1
+        except subprocess.CalledProcessError as e:
+            print(f"  ✗ Error: {e}")
+            error_count += 1
+            print(f"  ✗ Error: {e}")
+            error_count += 1
+
+    # Print summary
+    print("\n" + "=" * 80)
+    print("Summary:")
+    print(f"  Added: {added_count}")
+    print(f"  Skipped: {skipped_count}")
+    print(f"  Errors: {error_count}")
+
+    return 0 if error_count == 0 else 1
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -623,6 +693,11 @@ Examples:
     branch_parser.add_argument('repo_name', help='Repository name')
     branch_parser.add_argument('branch', help='New branch name')
 
+    # Init command
+    init_parser = subparsers.add_parser('init', help='Initialize subtrees from a CSV file')
+    init_parser.add_argument('-f', '--file', required=True, type=Path,
+                             help='Path to CSV file containing repositories to import')
+
     args = parser.parse_args()
 
     if not args.command:
@@ -637,6 +712,7 @@ Examples:
         'push': cmd_push,
         'list': cmd_list,
         'branch': cmd_branch,
+        'init': cmd_init,
     }
 
     handler = handlers.get(args.command)
