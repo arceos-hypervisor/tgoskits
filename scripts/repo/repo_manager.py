@@ -212,11 +212,44 @@ class GitSubtreeManager:
         )
         return result.returncode == 0
 
+    def detect_branch(self, url: str, remote_name: str) -> str:
+        """Auto-detect the default branch for a repository."""
+        # Try main first
+        result = subprocess.run(
+            ['git', 'rev-parse', f'{remote_name}/main'],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            return 'main'
+        
+        # Try master
+        result = subprocess.run(
+            ['git', 'rev-parse', f'{remote_name}/master'],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            return 'master'
+        
+        # Use default branch from remote
+        result = subprocess.run(
+            ['git', 'remote', 'show', remote_name],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if 'HEAD branch' in line:
+                    branch = line.split(':')[1].strip()
+                    if branch:
+                        return branch
+        
+        # Fallback to main
+        return 'main'
+
     def add_subtree(self, url: str, target_dir: str, branch: str = "") -> None:
         """Add a new git subtree."""
-        if branch == "":
-            branch = "main"
-
         if self.is_added(target_dir):
             print(f"Subtree at '{target_dir}' already exists.")
             return
@@ -229,24 +262,64 @@ class GitSubtreeManager:
             )
 
         repo_name = self.get_repo_name(url)
+        
+        # Add remote temporarily
+        remote_name = target_dir.replace('/', '_')
+        subprocess.run(['git', 'remote', 'add', remote_name, url], 
+                      capture_output=True)
+        
+        # Fetch from remote (no tags to avoid conflicts)
+        print(f"Fetching from {url}...")
+        fetch_result = subprocess.run(
+            ['git', 'fetch', remote_name, '--no-tags'],
+            capture_output=True,
+            text=True
+        )
+        
+        if fetch_result.returncode != 0:
+            subprocess.run(['git', 'remote', 'remove', remote_name], 
+                          capture_output=True)
+            raise ValueError(f"Failed to fetch from {url}")
+        
+        # Auto-detect branch if not specified
+        if branch == "":
+            branch = self.detect_branch(url, remote_name)
+            print(f"Auto-detected branch: {branch}")
+        
+        # Add subtree using the remote
         cmd = [
             'git', 'subtree', 'add',
             '--prefix=' + target_dir,
-            url,
+            remote_name,
             branch,
             '-m', f'Add subtree {repo_name}'
         ]
-        self._run_command(cmd)
+        
+        try:
+            self._run_command(cmd)
+        finally:
+            # Clean up remote
+            subprocess.run(['git', 'remote', 'remove', remote_name], 
+                          capture_output=True)
 
     def pull_subtree(self, url: str, target_dir: str, branch: str = "", force: bool = False) -> None:
         """Pull updates from a git subtree."""
-        if branch == "":
-            branch = "main"
-
         if not self.is_added(target_dir):
             print(f"Subtree at '{target_dir}' not found. Adding...")
             self.add_subtree(url, target_dir, branch)
             return
+
+        # Auto-detect branch if not specified
+        if branch == "":
+            remote_name = target_dir.replace('/', '_')
+            subprocess.run(['git', 'remote', 'add', remote_name, url], 
+                          capture_output=True)
+            subprocess.run(['git', 'fetch', remote_name, '--no-tags'], 
+                          capture_output=True)
+            branch = self.detect_branch(url, remote_name)
+            print(f"Auto-detected branch: {branch}")
+            subprocess.run(['git', 'remote', 'remove', remote_name], 
+                          capture_output=True)
 
         # Force mode: remove and re-add the subtree
         if force:
@@ -276,11 +349,20 @@ class GitSubtreeManager:
 
     def push_subtree(self, url: str, target_dir: str, branch: str = "") -> None:
         """Push local changes to a git subtree."""
-        if branch == "":
-            branch = "main"
-
         if not self.is_added(target_dir):
             raise ValueError(f"Subtree at '{target_dir}' not found. Cannot push.")
+
+        # Auto-detect branch if not specified
+        if branch == "":
+            remote_name = target_dir.replace('/', '_')
+            subprocess.run(['git', 'remote', 'add', remote_name, url], 
+                          capture_output=True)
+            subprocess.run(['git', 'fetch', remote_name, '--no-tags'], 
+                          capture_output=True)
+            branch = self.detect_branch(url, remote_name)
+            print(f"Auto-detected branch: {branch}")
+            subprocess.run(['git', 'remote', 'remove', remote_name], 
+                          capture_output=True)
 
         cmd = [
             'git', 'subtree', 'push',
@@ -622,6 +704,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         except subprocess.CalledProcessError as e:
             print(f"  ✗ Error: {e}")
             error_count += 1
+        except ValueError as e:
             print(f"  ✗ Error: {e}")
             error_count += 1
 
